@@ -1,0 +1,128 @@
+# Build ESP32 Chess Clock Firmware
+# 
+# NOTE: This workflow is DISABLED until firmware is stable.
+# To enable: Change 'if: false' to 'if: true' or remove the condition.
+
+name: Build Firmware
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # DISABLED - Remove this line to enable builds
+    if: false
+    
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant:
+          - { name: "24_ILI9341", flag: "CHESS_CLOCK_24_ILI9341" }
+          - { name: "24_ST7789", flag: "CHESS_CLOCK_24_ST7789" }
+          - { name: "28_ILI9341", flag: "CHESS_CLOCK_28_ILI9341" }
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cache Arduino CLI
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.arduino15
+          ~/Arduino/libraries
+        key: ${{ runner.os }}-arduino-esp32-3.0.4-${{ hashFiles('**/*.ino') }}
+        restore-keys: |
+          ${{ runner.os }}-arduino-esp32-3.0.4-
+
+    - name: Setup Arduino CLI
+      uses: arduino/setup-arduino-cli@v1
+
+    - name: Install ESP32 platform
+      run: |
+        arduino-cli config init --overwrite
+        arduino-cli core update-index
+        arduino-cli core install esp32:esp32@3.0.4
+
+    - name: Install required libraries
+      run: |
+        arduino-cli lib install "ArduinoJson@7.0.4"
+        arduino-cli lib install "TFT_eSPI@2.5.43"
+        arduino-cli lib install "XPT2046_Touchscreen@1.4"
+        arduino-cli lib install "lvgl@9.2.0"
+
+    - name: Setup LVGL configuration
+      run: |
+        LVGL_LIB_PATH=$(find /home/runner/Arduino/libraries -name "lvgl" -type d | head -1)
+        echo "LVGL library path: $LVGL_LIB_PATH"
+        if [ -n "$LVGL_LIB_PATH" ]; then
+          cp lvgl/src/lv_conf.h "$LVGL_LIB_PATH/lv_conf.h"
+          cp lvgl/src/lv_conf.h "$(dirname "$LVGL_LIB_PATH")/lv_conf.h"
+          echo "Copied lv_conf.h to LVGL library"
+        else
+          echo "ERROR: LVGL library not found"
+          exit 1
+        fi
+
+    - name: Setup TFT_eSPI configuration
+      run: |
+        TFT_LIB_PATH=$(find /home/runner/Arduino/libraries -name "TFT_eSPI" -type d | head -1)
+        echo "TFT_eSPI library path: $TFT_LIB_PATH"
+        if [ -n "$TFT_LIB_PATH" ]; then
+          cp TFT_eSPI/User_Setup.h "$TFT_LIB_PATH/User_Setup.h"
+        else
+          echo "ERROR: TFT_eSPI library not found"
+          exit 1
+        fi
+
+    - name: Build firmware for ${{ matrix.variant.name }}
+      run: |
+        echo "Building ${{ matrix.variant.name }}"
+        arduino-cli compile \
+          --fqbn esp32:esp32:esp32:FlashSize=4M,PartitionScheme=default \
+          --build-property "build.extra_flags=-D${{ matrix.variant.flag }}" \
+          --output-dir ./build \
+          chess-clock/chess-clock.ino
+
+    - name: Prepare artifacts
+      run: |
+        mkdir -p artifacts
+        cp build/chess-clock.ino.bin artifacts/firmware-${{ matrix.variant.name }}.bin
+        cp build/chess-clock.ino.bootloader.bin artifacts/bootloader-${{ matrix.variant.name }}.bin
+        cp build/chess-clock.ino.partitions.bin artifacts/partitions-${{ matrix.variant.name }}.bin
+        # boot_app0.bin is from ESP32 platform
+        cp ~/.arduino15/packages/esp32/hardware/esp32/*/tools/partitions/boot_app0.bin artifacts/boot_app0-${{ matrix.variant.name }}.bin
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-${{ matrix.variant.name }}
+        path: artifacts/
+
+  release:
+    # DISABLED - Remove this line to enable releases
+    if: false
+    
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: firmware
+        merge-multiple: true
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: firmware/*
+        generate_release_notes: true
+        draft: false
+        prerelease: false

@@ -1,0 +1,33 @@
+# ESP32 Chess Clock .gitignore
+
+# Build outputs
+build/
+*.bin
+*.elf
+*.map
+
+# IDE files
+.vscode/
+*.code-workspace
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Arduino CLI cache
+.arduino/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Compiled libraries
+*.a
+*.o
+
+# Local config overrides
+local_config.h
+secrets.h
