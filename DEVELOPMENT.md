@@ -131,7 +131,7 @@ In `chess-clock.ino`, uncomment ONE of these:
 2. Go to Settings > Pages
 3. Source: Deploy from a branch
 4. Branch: main, folder: /docs
-5. URL will be: `https://oakesekao.github.io/chess-clock/`
+5. URL will be: `https://oakesekao.github.io/cyd-chess-clock/`
 
 ### Manifest Files
 Located in `docs/manifests/`:

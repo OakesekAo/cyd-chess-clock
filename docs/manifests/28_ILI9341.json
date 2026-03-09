@@ -9,19 +9,19 @@
       "chipFamily": "ESP32",
       "parts": [
         {
-          "path": "https://github.com/OakesekAo/chess-clock/releases/latest/download/bootloader-28_ILI9341.bin",
+          "path": "https://github.com/OakesekAo/cyd-chess-clock/releases/latest/download/bootloader-28_ILI9341.bin",
           "offset": 4096
         },
         {
-          "path": "https://github.com/OakesekAo/chess-clock/releases/latest/download/partitions-28_ILI9341.bin",
+          "path": "https://github.com/OakesekAo/cyd-chess-clock/releases/latest/download/partitions-28_ILI9341.bin",
           "offset": 32768
         },
         {
-          "path": "https://github.com/OakesekAo/chess-clock/releases/latest/download/boot_app0-28_ILI9341.bin",
+          "path": "https://github.com/OakesekAo/cyd-chess-clock/releases/latest/download/boot_app0-28_ILI9341.bin",
           "offset": 57344
         },
         {
-          "path": "https://github.com/OakesekAo/chess-clock/releases/latest/download/firmware-28_ILI9341.bin",
+          "path": "https://github.com/OakesekAo/cyd-chess-clock/releases/latest/download/firmware-28_ILI9341.bin",
           "offset": 65536
         }
       ]

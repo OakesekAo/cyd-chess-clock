@@ -46,7 +46,7 @@ git commit -m "Initial commit - MVP chess clock"
 
 ### 3. Push to GitHub
 ```powershell
-git remote add origin https://github.com/OakesekAo/chess-clock.git
+git remote add origin https://github.com/OakesekAo/cyd-chess-clock.git
 git branch -M main
 git push -u origin main
 ```
