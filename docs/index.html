@@ -186,6 +186,75 @@
             font-size: 0.9rem;
             color: #ffcc00;
         }
+
+        .log-section {
+            margin-top: 16px;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .log-header h3 {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .log-toggle {
+            background: #333;
+            border: none;
+            color: var(--text-secondary);
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .log-toggle:hover {
+            background: #444;
+        }
+
+        .log-container {
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8rem;
+            display: none;
+        }
+
+        .log-container.visible {
+            display: block;
+        }
+
+        .log-container pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #0f0;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+        }
+
+        .log-entry.error {
+            color: #f55;
+        }
+
+        .log-entry.warn {
+            color: #ff0;
+        }
+
+        .log-entry.info {
+            color: #0af;
+        }
         
         @media (max-width: 480px) {
             h1 {
@@ -231,6 +300,16 @@
             <div class="warning">
                 ⚠️ <strong>Note:</strong> This will erase all existing data on your ESP32.
             </div>
+
+            <div class="log-section">
+                <div class="log-header">
+                    <h3>📜 Console Log</h3>
+                    <button class="log-toggle" onclick="toggleLog()">Show Log</button>
+                </div>
+                <div id="logContainer" class="log-container">
+                    <pre id="logOutput"></pre>
+                </div>
+            </div>
         </div>
 
         <div class="card">
@@ -268,7 +347,7 @@
 
     <footer>
         <p>
-            <a href="https://github.com/OakesekAo/chess-clock" target="_blank">View on GitHub</a>
+            <a href="https://github.com/OakesekAo/cyd-chess-clock" target="_blank">View on GitHub</a>
             &nbsp;|&nbsp;
             Powered by <a href="https://esphome.github.io/esp-web-tools/" target="_blank">ESP Web Tools</a>
         </p>
@@ -279,7 +358,57 @@
             const variant = document.getElementById('variant').value;
             const button = document.getElementById('installButton');
             button.setAttribute('manifest', `manifests/${variant}.json`);
+            addLog('info', `Selected variant: ${variant}`);
         }
+
+        function toggleLog() {
+            const container = document.getElementById('logContainer');
+            const button = document.querySelector('.log-toggle');
+            container.classList.toggle('visible');
+            button.textContent = container.classList.contains('visible') ? 'Hide Log' : 'Show Log';
+        }
+
+        function addLog(type, message) {
+            const output = document.getElementById('logOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            output.appendChild(entry);
+            output.parentElement.scrollTop = output.parentElement.scrollHeight;
+        }
+
+        // Capture console output
+        const originalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn,
+            info: console.info
+        };
+
+        console.log = function(...args) {
+            originalConsole.log.apply(console, args);
+            addLog('', args.join(' '));
+        };
+
+        console.error = function(...args) {
+            originalConsole.error.apply(console, args);
+            addLog('error', args.join(' '));
+        };
+
+        console.warn = function(...args) {
+            originalConsole.warn.apply(console, args);
+            addLog('warn', args.join(' '));
+        };
+
+        console.info = function(...args) {
+            originalConsole.info.apply(console, args);
+            addLog('info', args.join(' '));
+        };
+
+        // Log page load
+        addLog('info', 'ESP32 Chess Clock Installer loaded');
+        addLog('info', 'Select your display variant and click Install');
     </script>
 </body>
 </html>
