@@ -514,6 +514,18 @@ void diagnostic_setup() {
   tft.setRotation(0);
   Serial.println("    TFT initialized");
   
+  // Read display ID to check SPI communication
+  Serial.println("\n[3b] Reading display identification...");
+  uint32_t displayId = tft.readcommand8(0x04, 1) << 16;  // RDDID command
+  displayId |= tft.readcommand8(0x04, 2) << 8;
+  displayId |= tft.readcommand8(0x04, 3);
+  Serial.printf("    Display ID: 0x%06X\n", displayId);
+  Serial.printf("    (If 0x000000 or 0xFFFFFF, SPI communication may have failed)\n");
+  
+  // Also try reading display status  
+  uint8_t status = tft.readcommand8(0x09, 1);  // RDDST command
+  Serial.printf("    Display Status: 0x%02X\n", status);
+  
   // Test display with colors
   Serial.println("\n[4] Testing display colors...");
   
@@ -536,6 +548,20 @@ void diagnostic_setup() {
   Serial.println("    Filling BLACK...");
   tft.fillScreen(TFT_BLACK);
   delay(200);
+
+  // Test display inversion - some displays need this
+  Serial.println("\n[4b] Testing display inversion...");
+  Serial.println("    Inverting display ON...");
+  tft.invertDisplay(true);
+  tft.fillScreen(TFT_WHITE);
+  delay(1000);
+  
+  Serial.println("    Inverting display OFF...");
+  tft.invertDisplay(false);
+  tft.fillScreen(TFT_WHITE);
+  delay(1000);
+  
+  tft.fillScreen(TFT_BLACK);
   
   // Draw test pattern
   Serial.println("\n[5] Drawing test pattern...");

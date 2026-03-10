@@ -56,9 +56,10 @@
 // Section 4. SPI settings
 // ##################################################################################
 
-#define SPI_FREQUENCY  55000000
-#define SPI_READ_FREQUENCY  20000000
+// Reduced SPI frequency for better compatibility (some CYD boards need slower speeds)
+#define SPI_FREQUENCY  27000000
+#define SPI_READ_FREQUENCY  16000000
 #define SPI_TOUCH_FREQUENCY  2500000
 
-// Use HSPI port (VSPI is default, but HSPI works better for some CYD boards)
+// Use HSPI port (CYD boards use HSPI for display)
 #define USE_HSPI_PORT
