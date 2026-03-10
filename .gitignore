@@ -31,3 +31,8 @@ Thumbs.db
 # Local config overrides
 local_config.h
 secrets.h
+
+# Local dev docs (not for public repo)
+DEVELOPMENT.md
+GETTING_STARTED.md
+compile_log.txt
