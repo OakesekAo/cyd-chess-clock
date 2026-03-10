@@ -1,17 +1,15 @@
 ﻿{
   "name": "ESP32 Chess Clock - 2.4\" ST7789",
   "version": "0.1.0",
-  "home_assistant_domain": "",
-  "funding_url": "",
   "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32",
       "parts": [
-        { "path": "../firmware/24_ST7789/bootloader-24_ST7789.bin", "offset": 4096 },
-        { "path": "../firmware/24_ST7789/partitions-24_ST7789.bin", "offset": 32768 },
-        { "path": "../firmware/24_ST7789/boot_app0-24_ST7789.bin", "offset": 57344 },
-        { "path": "../firmware/24_ST7789/firmware-24_ST7789.bin", "offset": 65536 }
+        { "path": "https://oakesekao.github.io/cyd-chess-clock/firmware/24_ST7789/bootloader-24_ST7789.bin", "offset": 4096 },
+        { "path": "https://oakesekao.github.io/cyd-chess-clock/firmware/24_ST7789/partitions-24_ST7789.bin", "offset": 32768 },
+        { "path": "https://oakesekao.github.io/cyd-chess-clock/firmware/24_ST7789/boot_app0-24_ST7789.bin", "offset": 57344 },
+        { "path": "https://oakesekao.github.io/cyd-chess-clock/firmware/24_ST7789/firmware-24_ST7789.bin", "offset": 65536 }
       ]
     }
   ]
