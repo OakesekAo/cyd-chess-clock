@@ -8,6 +8,7 @@ set BOOT_APP0=%LOCALAPPDATA%\Arduino15\packages\esp32\hardware\esp32\3.0.4\tools
 set FQBN=esp32:esp32:esp32
 set SKETCH=chess-clock
 set INO_FILE=chess-clock\chess-clock.ino
+set ARDUINO_LIBS=%USERPROFILE%\Documents\Arduino\libraries
 
 echo ============================================
 echo ESP32 Chess Clock - Building All Variants
@@ -21,6 +22,26 @@ if errorlevel 1 (
     echo Install with: winget install ArduinoSA.CLI
     exit /b 1
 )
+
+REM Copy TFT_eSPI User_Setup.h to Arduino libraries folder
+echo Copying TFT_eSPI User_Setup.h to Arduino libraries...
+if exist "%ARDUINO_LIBS%\TFT_eSPI" (
+    copy /Y "TFT_eSPI\User_Setup.h" "%ARDUINO_LIBS%\TFT_eSPI\User_Setup.h"
+    echo   User_Setup.h copied to %ARDUINO_LIBS%\TFT_eSPI\
+) else (
+    echo   WARNING: TFT_eSPI library not found at %ARDUINO_LIBS%\TFT_eSPI
+)
+
+REM Copy LVGL lv_conf.h to Arduino libraries folder  
+echo Copying LVGL lv_conf.h to Arduino libraries...
+if exist "%ARDUINO_LIBS%\lvgl" (
+    copy /Y "lvgl\src\lv_conf.h" "%ARDUINO_LIBS%\lvgl\src\lv_conf.h"
+    copy /Y "lvgl\src\lv_conf.h" "%ARDUINO_LIBS%\lv_conf.h"
+    echo   lv_conf.h copied to %ARDUINO_LIBS%\lvgl\ and %ARDUINO_LIBS%\
+) else (
+    echo   WARNING: lvgl library not found at %ARDUINO_LIBS%\lvgl
+)
+echo.
 
 REM Clean build folder
 if exist build rmdir /s /q build

@@ -56,9 +56,9 @@
 // Section 4. SPI settings
 // ##################################################################################
 
-// Reduced SPI frequency for better compatibility (some CYD boards need slower speeds)
-#define SPI_FREQUENCY  27000000
-#define SPI_READ_FREQUENCY  16000000
+// SPI frequency - matching Aura's working configuration
+#define SPI_FREQUENCY  55000000
+#define SPI_READ_FREQUENCY  20000000
 #define SPI_TOUCH_FREQUENCY  2500000
 
 // Use HSPI port (CYD boards use HSPI for display)

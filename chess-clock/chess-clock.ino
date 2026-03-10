@@ -10,8 +10,8 @@
  */
 
 // #define CHESS_CLOCK_24_ILI9341
-// #define CHESS_CLOCK_24_ST7789
-// #define CHESS_CLOCK_28_ILI9341  // Default - most common CYD variant
+// // #define CHESS_CLOCK_24_ST7789
+// // #define CHESS_CLOCK_28_ILI9341  // Default - most common CYD variant
 #define CHESS_CLOCK_24_ILI9341  // Testing 2.4" board
 
 // Uncomment to run display diagnostic mode instead of chess clock
