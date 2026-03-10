@@ -469,175 +469,171 @@ void create_ui() {
 
 #ifdef CC_DIAGNOSTIC_MODE
 
-// RGB LED pins (CYD boards typically have an RGB LED)
+// RGB LED pins - CYD uses active LOW LEDs
 #define RGB_LED_R 4
 #define RGB_LED_G 16
 #define RGB_LED_B 17
 
+// Simple diagnostic version - minimal code to isolate display issue
 void diagnostic_setup() {
+  // Disable watchdog timer to prevent resets
+  disableCore0WDT();
+  disableCore1WDT();
+  
   Serial.begin(115200);
-  delay(500);
+  while (!Serial && millis() < 3000) { delay(10); }  // Wait for serial
+  delay(1000);
   
   Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC MODE");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v2");
   Serial.println("========================================");
-  Serial.printf("Chip Model: %s\n", ESP.getChipModel());
-  Serial.printf("Chip Revision: %d\n", ESP.getChipRevision());
-  Serial.printf("CPU Freq: %d MHz\n", ESP.getCpuFreqMHz());
-  Serial.printf("Free Heap: %d bytes\n", ESP.getFreeHeap());
-  Serial.printf("Flash Size: %d bytes\n", ESP.getFlashChipSize());
+  Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
+  Serial.printf("CPU: %d MHz, Heap: %d bytes\n", ESP.getCpuFreqMHz(), ESP.getFreeHeap());
   Serial.println("========================================\n");
+  Serial.flush();
   
-  // Initialize RGB LED
-  Serial.println("[1] Initializing RGB LED...");
+  // [1] RGB LED - turn all OFF first (active LOW)
+  Serial.println("[1] RGB LED init...");
+  Serial.flush();
   pinMode(RGB_LED_R, OUTPUT);
-  pinMode(RGB_LED_G, OUTPUT);
+  pinMode(RGB_LED_G, OUTPUT);  
   pinMode(RGB_LED_B, OUTPUT);
-  digitalWrite(RGB_LED_R, HIGH);  // LEDs are typically active LOW
-  digitalWrite(RGB_LED_G, HIGH);
-  digitalWrite(RGB_LED_B, HIGH);
-  Serial.println("    RGB LED initialized (all OFF)");
+  digitalWrite(RGB_LED_R, HIGH);  // OFF
+  digitalWrite(RGB_LED_G, HIGH);  // OFF
+  digitalWrite(RGB_LED_B, HIGH);  // OFF
+  delay(100);
+  Serial.println("    Done - all OFF");
+  Serial.flush();
   
-  // Initialize backlight
-  Serial.println("\n[2] Initializing backlight (pin 21)...");
+  // [2] Backlight ON
+  Serial.println("\n[2] Backlight init (GPIO 21)...");
+  Serial.flush();
   pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
+  delay(50);
   digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
-  Serial.println("    Backlight ON");
+  delay(100);
+  Serial.println("    Done - backlight ON");
+  Serial.flush();
   
-  // Initialize TFT
-  Serial.println("\n[3] Initializing TFT display...");
-  Serial.printf("    Driver: ILI9341_2\n");
+  // [3] TFT init - this is where TFT_eSPI User_Setup.h matters
+  Serial.println("\n[3] TFT init...");
+  Serial.printf("    Expected pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2\n");
   Serial.printf("    Resolution: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
-  Serial.printf("    MISO=%d MOSI=%d SCLK=%d CS=%d DC=%d\n", 
-                12, 13, 14, 15, 2);
+  Serial.flush();
+  delay(100);
+  
   tft.init();
+  delay(100);
   tft.setRotation(0);
-  Serial.println("    TFT initialized");
+  delay(100);
+  Serial.println("    Done - TFT initialized");
+  Serial.flush();
   
-  // Read display ID to check SPI communication
-  Serial.println("\n[3b] Reading display identification...");
-  uint32_t displayId = tft.readcommand8(0x04, 1) << 16;  // RDDID command
-  displayId |= tft.readcommand8(0x04, 2) << 8;
-  displayId |= tft.readcommand8(0x04, 3);
+  // [4] Read display ID to verify SPI is working
+  Serial.println("\n[4] Reading display ID (RDDID 0x04)...");
+  Serial.flush();
+  delay(100);
+  
+  uint8_t id1 = tft.readcommand8(0x04, 1);
+  uint8_t id2 = tft.readcommand8(0x04, 2);
+  uint8_t id3 = tft.readcommand8(0x04, 3);
+  uint32_t displayId = (id1 << 16) | (id2 << 8) | id3;
+  
   Serial.printf("    Display ID: 0x%06X\n", displayId);
-  Serial.printf("    (If 0x000000 or 0xFFFFFF, SPI communication may have failed)\n");
+  if (displayId == 0x000000) {
+    Serial.println("    WARNING: ID=0 suggests MISO not connected or wrong pin");
+  } else if (displayId == 0xFFFFFF) {
+    Serial.println("    WARNING: ID=0xFFFFFF suggests SPI not working (wrong pins?)");
+  } else {
+    Serial.println("    OK - Display responded!");
+  }
+  Serial.flush();
   
-  // Also try reading display status  
-  uint8_t status = tft.readcommand8(0x09, 1);  // RDDST command
-  Serial.printf("    Display Status: 0x%02X\n", status);
+  // [5] Simple color test - very basic, each color held for 2 seconds
+  Serial.println("\n[5] Color fill test (2 sec each)...");
+  Serial.flush();
   
-  // Test display with colors
-  Serial.println("\n[4] Testing display colors...");
-  
-  Serial.println("    Filling RED...");
+  Serial.println("    RED...");
+  Serial.flush();
   tft.fillScreen(TFT_RED);
-  delay(500);
+  digitalWrite(RGB_LED_R, LOW);  // Red LED ON
+  delay(2000);
+  digitalWrite(RGB_LED_R, HIGH);
   
-  Serial.println("    Filling GREEN...");
+  Serial.println("    GREEN...");  
+  Serial.flush();
   tft.fillScreen(TFT_GREEN);
-  delay(500);
+  digitalWrite(RGB_LED_G, LOW);  // Green LED ON
+  delay(2000);
+  digitalWrite(RGB_LED_G, HIGH);
   
-  Serial.println("    Filling BLUE...");
+  Serial.println("    BLUE...");
+  Serial.flush();
   tft.fillScreen(TFT_BLUE);
-  delay(500);
+  digitalWrite(RGB_LED_B, LOW);  // Blue LED ON
+  delay(2000);
+  digitalWrite(RGB_LED_B, HIGH);
   
-  Serial.println("    Filling WHITE...");
+  Serial.println("    WHITE...");
+  Serial.flush();
   tft.fillScreen(TFT_WHITE);
-  delay(500);
+  delay(2000);
   
-  Serial.println("    Filling BLACK...");
+  // [6] Final test pattern
+  Serial.println("\n[6] Drawing test pattern...");
+  Serial.flush();
   tft.fillScreen(TFT_BLACK);
-  delay(200);
-
-  // Test display inversion - some displays need this
-  Serial.println("\n[4b] Testing display inversion...");
-  Serial.println("    Inverting display ON...");
-  tft.invertDisplay(true);
-  tft.fillScreen(TFT_WHITE);
-  delay(1000);
+  tft.fillRect(0, 0, 120, 160, TFT_RED);
+  tft.fillRect(120, 0, 120, 160, TFT_GREEN);  
+  tft.fillRect(0, 160, 120, 160, TFT_BLUE);
+  tft.fillRect(120, 160, 120, 160, TFT_YELLOW);
   
-  Serial.println("    Inverting display OFF...");
-  tft.invertDisplay(false);
-  tft.fillScreen(TFT_WHITE);
-  delay(1000);
-  
-  tft.fillScreen(TFT_BLACK);
-  
-  // Draw test pattern
-  Serial.println("\n[5] Drawing test pattern...");
-  tft.fillScreen(TFT_BLACK);
-  
-  // Draw colored rectangles
-  tft.fillRect(0, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_RED);
-  tft.fillRect(SCREEN_WIDTH/2, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_GREEN);
-  tft.fillRect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_BLUE);
-  tft.fillRect(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_YELLOW);
-  
-  // Draw center cross
-  tft.drawLine(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT/2, TFT_WHITE);
-  tft.drawLine(SCREEN_WIDTH/2, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT, TFT_WHITE);
-  
-  // Draw text
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(10, SCREEN_HEIGHT/2 - 30);
-  tft.println("DIAGNOSTIC");
-  tft.setCursor(10, SCREEN_HEIGHT/2 + 10);
-  tft.println("Touch screen");
+  tft.setCursor(60, 150);
+  tft.print("DIAG OK");
   
-  Serial.println("    Test pattern displayed");
+  Serial.println("    Done - pattern displayed");
+  Serial.flush();
   
-  // Initialize touch
-  Serial.println("\n[6] Initializing touchscreen...");
-  Serial.printf("    CLK=%d MISO=%d MOSI=%d CS=%d\n", 
-                XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);
-  touchscreen.setRotation(0);
-  Serial.println("    Touchscreen initialized");
+  // [7] Touch disabled for now - focus on display first
+  Serial.println("\n[7] Touch test DISABLED in this version");
+  Serial.println("    (Focus on display first)");
+  Serial.flush();
   
   Serial.println("\n========================================");
-  Serial.println("DIAGNOSTIC COMPLETE - Entering touch test");
-  Serial.println("Touch the screen to see coordinates");
-  Serial.println("RGB LED will show: R=touched, G=X>half, B=Y>half");
-  Serial.println("========================================\n");
+  Serial.println("DIAGNOSTIC COMPLETE");
+  Serial.println("If display is BLACK:");
+  Serial.println("  - Check TFT_eSPI User_Setup.h was copied to Arduino libs");
+  Serial.println("  - Verify SPI pins: MISO=12 MOSI=13 SCLK=14 CS=15 DC=2");
+  Serial.println("========================================");
+  Serial.println("\nEntering LED blink loop...\n");
+  Serial.flush();
 }
 
 void diagnostic_loop() {
-  static unsigned long lastTouch = 0;
-  static int touchCount = 0;
+  static uint32_t lastBlink = 0;
+  static int ledState = 0;
   
-  if (touchscreen.tirqTouched() && touchscreen.touched()) {
-    TS_Point p = touchscreen.getPoint();
+  // Blink RGB LED in sequence to show firmware is running
+  if (millis() - lastBlink > 1000) {
+    lastBlink = millis();
     
-    if (millis() - lastTouch > 100) {  // Debounce
-      touchCount++;
-      
-      // Map raw touch to screen coordinates
-      int x = map(p.x, 200, 3700, 0, SCREEN_WIDTH);
-      int y = map(p.y, 240, 3800, 0, SCREEN_HEIGHT);
-      
-      Serial.printf("Touch #%d: Raw(%d, %d, z=%d) -> Screen(%d, %d)\n", 
-                    touchCount, p.x, p.y, p.z, x, y);
-      
-      // Update RGB LED based on touch position
-      digitalWrite(RGB_LED_R, LOW);   // Red ON when touched
-      digitalWrite(RGB_LED_G, (x > SCREEN_WIDTH/2) ? LOW : HIGH);   // Green if right half
-      digitalWrite(RGB_LED_B, (y > SCREEN_HEIGHT/2) ? LOW : HIGH);  // Blue if bottom half
-      
-      // Draw touch point on screen
-      tft.fillCircle(x, y, 5, TFT_WHITE);
-      
-      lastTouch = millis();
+    // Turn all off
+    digitalWrite(RGB_LED_R, HIGH);
+    digitalWrite(RGB_LED_G, HIGH);
+    digitalWrite(RGB_LED_B, HIGH);
+    
+    // Turn one on
+    switch (ledState) {
+      case 0: digitalWrite(RGB_LED_R, LOW); Serial.println("LED: RED"); break;
+      case 1: digitalWrite(RGB_LED_G, LOW); Serial.println("LED: GREEN"); break;
+      case 2: digitalWrite(RGB_LED_B, LOW); Serial.println("LED: BLUE"); break;
     }
-  } else {
-    // Turn off red LED when not touching
-    if (millis() - lastTouch > 200) {
-      digitalWrite(RGB_LED_R, HIGH);
-    }
+    ledState = (ledState + 1) % 3;
   }
   
-  delay(10);
+  delay(100);
 }
 
 void setup() {
