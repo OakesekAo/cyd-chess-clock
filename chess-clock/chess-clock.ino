@@ -11,7 +11,11 @@
 
 // #define CHESS_CLOCK_24_ILI9341
 // #define CHESS_CLOCK_24_ST7789
-#define CHESS_CLOCK_28_ILI9341  // Default - most common CYD variant
+// #define CHESS_CLOCK_28_ILI9341  // Default - most common CYD variant
+#define CHESS_CLOCK_24_ILI9341  // Testing 2.4" board
+
+// Uncomment to run display diagnostic mode instead of chess clock
+#define CC_DIAGNOSTIC_MODE
 
 #include <Arduino.h>
 #include <lvgl.h>
@@ -460,6 +464,167 @@ void create_ui() {
 }
 
 // ============================================================================
+// DIAGNOSTIC MODE - Tests display and touch before running chess clock
+// ============================================================================
+
+#ifdef CC_DIAGNOSTIC_MODE
+
+// RGB LED pins (CYD boards typically have an RGB LED)
+#define RGB_LED_R 4
+#define RGB_LED_G 16
+#define RGB_LED_B 17
+
+void diagnostic_setup() {
+  Serial.begin(115200);
+  delay(500);
+  
+  Serial.println("\n\n========================================");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC MODE");
+  Serial.println("========================================");
+  Serial.printf("Chip Model: %s\n", ESP.getChipModel());
+  Serial.printf("Chip Revision: %d\n", ESP.getChipRevision());
+  Serial.printf("CPU Freq: %d MHz\n", ESP.getCpuFreqMHz());
+  Serial.printf("Free Heap: %d bytes\n", ESP.getFreeHeap());
+  Serial.printf("Flash Size: %d bytes\n", ESP.getFlashChipSize());
+  Serial.println("========================================\n");
+  
+  // Initialize RGB LED
+  Serial.println("[1] Initializing RGB LED...");
+  pinMode(RGB_LED_R, OUTPUT);
+  pinMode(RGB_LED_G, OUTPUT);
+  pinMode(RGB_LED_B, OUTPUT);
+  digitalWrite(RGB_LED_R, HIGH);  // LEDs are typically active LOW
+  digitalWrite(RGB_LED_G, HIGH);
+  digitalWrite(RGB_LED_B, HIGH);
+  Serial.println("    RGB LED initialized (all OFF)");
+  
+  // Initialize backlight
+  Serial.println("\n[2] Initializing backlight (pin 21)...");
+  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
+  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
+  Serial.println("    Backlight ON");
+  
+  // Initialize TFT
+  Serial.println("\n[3] Initializing TFT display...");
+  Serial.printf("    Driver: ILI9341_2\n");
+  Serial.printf("    Resolution: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
+  Serial.printf("    MISO=%d MOSI=%d SCLK=%d CS=%d DC=%d\n", 
+                12, 13, 14, 15, 2);
+  tft.init();
+  tft.setRotation(0);
+  Serial.println("    TFT initialized");
+  
+  // Test display with colors
+  Serial.println("\n[4] Testing display colors...");
+  
+  Serial.println("    Filling RED...");
+  tft.fillScreen(TFT_RED);
+  delay(500);
+  
+  Serial.println("    Filling GREEN...");
+  tft.fillScreen(TFT_GREEN);
+  delay(500);
+  
+  Serial.println("    Filling BLUE...");
+  tft.fillScreen(TFT_BLUE);
+  delay(500);
+  
+  Serial.println("    Filling WHITE...");
+  tft.fillScreen(TFT_WHITE);
+  delay(500);
+  
+  Serial.println("    Filling BLACK...");
+  tft.fillScreen(TFT_BLACK);
+  delay(200);
+  
+  // Draw test pattern
+  Serial.println("\n[5] Drawing test pattern...");
+  tft.fillScreen(TFT_BLACK);
+  
+  // Draw colored rectangles
+  tft.fillRect(0, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_RED);
+  tft.fillRect(SCREEN_WIDTH/2, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_GREEN);
+  tft.fillRect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_BLUE);
+  tft.fillRect(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, TFT_YELLOW);
+  
+  // Draw center cross
+  tft.drawLine(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT/2, TFT_WHITE);
+  tft.drawLine(SCREEN_WIDTH/2, 0, SCREEN_WIDTH/2, SCREEN_HEIGHT, TFT_WHITE);
+  
+  // Draw text
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, SCREEN_HEIGHT/2 - 30);
+  tft.println("DIAGNOSTIC");
+  tft.setCursor(10, SCREEN_HEIGHT/2 + 10);
+  tft.println("Touch screen");
+  
+  Serial.println("    Test pattern displayed");
+  
+  // Initialize touch
+  Serial.println("\n[6] Initializing touchscreen...");
+  Serial.printf("    CLK=%d MISO=%d MOSI=%d CS=%d\n", 
+                XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+  touchscreen.begin(touchscreenSPI);
+  touchscreen.setRotation(0);
+  Serial.println("    Touchscreen initialized");
+  
+  Serial.println("\n========================================");
+  Serial.println("DIAGNOSTIC COMPLETE - Entering touch test");
+  Serial.println("Touch the screen to see coordinates");
+  Serial.println("RGB LED will show: R=touched, G=X>half, B=Y>half");
+  Serial.println("========================================\n");
+}
+
+void diagnostic_loop() {
+  static unsigned long lastTouch = 0;
+  static int touchCount = 0;
+  
+  if (touchscreen.tirqTouched() && touchscreen.touched()) {
+    TS_Point p = touchscreen.getPoint();
+    
+    if (millis() - lastTouch > 100) {  // Debounce
+      touchCount++;
+      
+      // Map raw touch to screen coordinates
+      int x = map(p.x, 200, 3700, 0, SCREEN_WIDTH);
+      int y = map(p.y, 240, 3800, 0, SCREEN_HEIGHT);
+      
+      Serial.printf("Touch #%d: Raw(%d, %d, z=%d) -> Screen(%d, %d)\n", 
+                    touchCount, p.x, p.y, p.z, x, y);
+      
+      // Update RGB LED based on touch position
+      digitalWrite(RGB_LED_R, LOW);   // Red ON when touched
+      digitalWrite(RGB_LED_G, (x > SCREEN_WIDTH/2) ? LOW : HIGH);   // Green if right half
+      digitalWrite(RGB_LED_B, (y > SCREEN_HEIGHT/2) ? LOW : HIGH);  // Blue if bottom half
+      
+      // Draw touch point on screen
+      tft.fillCircle(x, y, 5, TFT_WHITE);
+      
+      lastTouch = millis();
+    }
+  } else {
+    // Turn off red LED when not touching
+    if (millis() - lastTouch > 200) {
+      digitalWrite(RGB_LED_R, HIGH);
+    }
+  }
+  
+  delay(10);
+}
+
+void setup() {
+  diagnostic_setup();
+}
+
+void loop() {
+  diagnostic_loop();
+}
+
+#else  // Normal chess clock mode
+
+// ============================================================================
 // SETUP & LOOP
 // ============================================================================
 
@@ -515,3 +680,4 @@ void loop() {
   lv_tick_inc(5);
   delay(5);
 }
+#endif  // CC_DIAGNOSTIC_MODE
