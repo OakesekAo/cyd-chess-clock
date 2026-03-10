@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "ESP32 Chess Clock - 2.8\" ILI9341",
   "version": "0.1.0",
   "home_assistant_domain": "",
@@ -8,22 +8,10 @@
     {
       "chipFamily": "ESP32",
       "parts": [
-        {
-          "path": "firmware/28_ILI9341/bootloader-28_ILI9341.bin",
-          "offset": 4096
-        },
-        {
-          "path": "firmware/28_ILI9341/partitions-28_ILI9341.bin",
-          "offset": 32768
-        },
-        {
-          "path": "firmware/28_ILI9341/boot_app0-28_ILI9341.bin",
-          "offset": 57344
-        },
-        {
-          "path": "firmware/28_ILI9341/firmware-28_ILI9341.bin",
-          "offset": 65536
-        }
+        { "path": "../firmware/28_ILI9341/bootloader-28_ILI9341.bin", "offset": 4096 },
+        { "path": "../firmware/28_ILI9341/partitions-28_ILI9341.bin", "offset": 32768 },
+        { "path": "../firmware/28_ILI9341/boot_app0-28_ILI9341.bin", "offset": 57344 },
+        { "path": "../firmware/28_ILI9341/firmware-28_ILI9341.bin", "offset": 65536 }
       ]
     }
   ]

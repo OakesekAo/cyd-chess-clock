@@ -8,22 +8,10 @@
     {
       "chipFamily": "ESP32",
       "parts": [
-        {
-          "path": "firmware/24_ST7789/bootloader-24_ST7789.bin",
-          "offset": 4096
-        },
-        {
-          "path": "firmware/24_ST7789/partitions-24_ST7789.bin",
-          "offset": 32768
-        },
-        {
-          "path": "firmware/24_ST7789/boot_app0-24_ST7789.bin",
-          "offset": 57344
-        },
-        {
-          "path": "firmware/24_ST7789/firmware-24_ST7789.bin",
-          "offset": 65536
-        }
+        { "path": "../firmware/24_ST7789/bootloader-24_ST7789.bin", "offset": 4096 },
+        { "path": "../firmware/24_ST7789/partitions-24_ST7789.bin", "offset": 32768 },
+        { "path": "../firmware/24_ST7789/boot_app0-24_ST7789.bin", "offset": 57344 },
+        { "path": "../firmware/24_ST7789/firmware-24_ST7789.bin", "offset": 65536 }
       ]
     }
   ]
