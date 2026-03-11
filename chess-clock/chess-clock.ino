@@ -474,114 +474,75 @@ void create_ui() {
 #define RGB_LED_G 16
 #define RGB_LED_B 17
 
-// Simple diagnostic version - minimal code to isolate display issue
+// Diagnostic v3 - EXACT match to working Aura initialization sequence
 void diagnostic_setup() {
-  // Disable watchdog timer to prevent resets
-  disableCore0WDT();
-  disableCore1WDT();
-  
   Serial.begin(115200);
-  while (!Serial && millis() < 3000) { delay(10); }  // Wait for serial
-  delay(1000);
+  delay(100);  // Match Aura's 100ms delay
   
   Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v2");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v3");
+  Serial.println("    (Aura-compatible init sequence)");
   Serial.println("========================================");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
   Serial.printf("CPU: %d MHz, Heap: %d bytes\n", ESP.getCpuFreqMHz(), ESP.getFreeHeap());
   Serial.println("========================================\n");
-  Serial.flush();
   
-  // [1] RGB LED - turn all OFF first (active LOW)
-  Serial.println("[1] RGB LED init...");
-  Serial.flush();
+  // ============================================
+  // AURA-COMPATIBLE INITIALIZATION SEQUENCE
+  // (Exact order from working Aura firmware)
+  // ============================================
+  
+  // Step 1: TFT init FIRST (like Aura does)
+  Serial.println("[1] tft.init() - FIRST like Aura...");
+  Serial.printf("    Pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2\n");
+  tft.init();
+  // NOTE: Aura does NOT call setRotation() after init
+  Serial.println("    Done (no setRotation call)");
+  
+  // Step 2: Backlight AFTER tft.init (like Aura)
+  Serial.println("\n[2] Backlight init AFTER tft.init...");
+  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
+  // Aura uses analogWrite for backlight, not digitalWrite
+  analogWrite(LCD_BACKLIGHT_PIN, 255);  // Full brightness
+  Serial.println("    Done - analogWrite(255)");
+  
+  // Step 3: RGB LED init (for visual feedback)
+  Serial.println("\n[3] RGB LED init...");
   pinMode(RGB_LED_R, OUTPUT);
   pinMode(RGB_LED_G, OUTPUT);  
   pinMode(RGB_LED_B, OUTPUT);
-  digitalWrite(RGB_LED_R, HIGH);  // OFF
+  digitalWrite(RGB_LED_R, HIGH);  // OFF (active LOW)
   digitalWrite(RGB_LED_G, HIGH);  // OFF
   digitalWrite(RGB_LED_B, HIGH);  // OFF
-  delay(100);
   Serial.println("    Done - all OFF");
-  Serial.flush();
   
-  // [2] Backlight ON
-  Serial.println("\n[2] Backlight init (GPIO 21)...");
-  Serial.flush();
-  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-  delay(50);
-  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
-  delay(100);
-  Serial.println("    Done - backlight ON");
-  Serial.flush();
-  
-  // [3] TFT init - this is where TFT_eSPI User_Setup.h matters
-  Serial.println("\n[3] TFT init...");
-  Serial.printf("    Expected pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2\n");
-  Serial.printf("    Resolution: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
-  Serial.flush();
-  delay(100);
-  
-  tft.init();
-  delay(100);
-  tft.setRotation(0);
-  delay(100);
-  Serial.println("    Done - TFT initialized");
-  Serial.flush();
-  
-  // [4] Read display ID to verify SPI is working
-  Serial.println("\n[4] Reading display ID (RDDID 0x04)...");
-  Serial.flush();
-  delay(100);
-  
-  uint8_t id1 = tft.readcommand8(0x04, 1);
-  uint8_t id2 = tft.readcommand8(0x04, 2);
-  uint8_t id3 = tft.readcommand8(0x04, 3);
-  uint32_t displayId = (id1 << 16) | (id2 << 8) | id3;
-  
-  Serial.printf("    Display ID: 0x%06X\n", displayId);
-  if (displayId == 0x000000) {
-    Serial.println("    WARNING: ID=0 suggests MISO not connected or wrong pin");
-  } else if (displayId == 0xFFFFFF) {
-    Serial.println("    WARNING: ID=0xFFFFFF suggests SPI not working (wrong pins?)");
-  } else {
-    Serial.println("    OK - Display responded!");
-  }
-  Serial.flush();
-  
-  // [5] Simple color test - very basic, each color held for 2 seconds
-  Serial.println("\n[5] Color fill test (2 sec each)...");
-  Serial.flush();
+  // Step 4: Test display with colors
+  Serial.println("\n[4] Color fill test (1 sec each)...");
   
   Serial.println("    RED...");
-  Serial.flush();
   tft.fillScreen(TFT_RED);
   digitalWrite(RGB_LED_R, LOW);  // Red LED ON
-  delay(2000);
+  delay(1000);
   digitalWrite(RGB_LED_R, HIGH);
   
   Serial.println("    GREEN...");  
-  Serial.flush();
   tft.fillScreen(TFT_GREEN);
   digitalWrite(RGB_LED_G, LOW);  // Green LED ON
-  delay(2000);
+  delay(1000);
   digitalWrite(RGB_LED_G, HIGH);
   
   Serial.println("    BLUE...");
-  Serial.flush();
   tft.fillScreen(TFT_BLUE);
   digitalWrite(RGB_LED_B, LOW);  // Blue LED ON
-  delay(2000);
+  delay(1000);
   digitalWrite(RGB_LED_B, HIGH);
   
   Serial.println("    WHITE...");
-  Serial.flush();
   tft.fillScreen(TFT_WHITE);
-  delay(2000);
+  delay(1000);
   
-  // [6] Final test pattern
-  Serial.println("\n[6] Drawing test pattern...");
-  Serial.flush();
+  // Step 5: Test pattern
+  Serial.println("\n[5] Drawing test pattern...");
   tft.fillScreen(TFT_BLACK);
   tft.fillRect(0, 0, 120, 160, TFT_RED);
   tft.fillRect(120, 0, 120, 160, TFT_GREEN);  
@@ -590,14 +551,20 @@ void diagnostic_setup() {
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(60, 150);
-  tft.print("DIAG OK");
+  tft.setCursor(50, 150);
+  tft.print("DIAG v3");
   
-  Serial.println("    Done - pattern displayed");
-  Serial.flush();
+  Serial.println("    Done");
   
-  // [7] Touch disabled for now - focus on display first
-  Serial.println("\n[7] Touch test DISABLED in this version");
+  // Step 6: Read display ID (diagnostic only, Aura doesn't do this)
+  Serial.println("\n[6] Display ID check...");
+  uint8_t id1 = tft.readcommand8(0x04, 1);
+  uint8_t id2 = tft.readcommand8(0x04, 2);
+  uint8_t id3 = tft.readcommand8(0x04, 3);
+  uint32_t displayId = (id1 << 16) | (id2 << 8) | id3;
+  Serial.printf("    Display ID: 0x%06X\n", displayId);
+  
+  Serial.println("\n[7] Touch test DISABLED");
   Serial.println("    (Focus on display first)");
   Serial.flush();
   
