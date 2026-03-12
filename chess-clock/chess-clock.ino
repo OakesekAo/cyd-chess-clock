@@ -464,115 +464,218 @@ void create_ui() {
 }
 
 // ============================================================================
-// DIAGNOSTIC MODE - Tests display and touch before running chess clock
+// DIAGNOSTIC MODE v4 - Manual SPI test (bypasses TFT_eSPI config issues)
 // ============================================================================
 
 #ifdef CC_DIAGNOSTIC_MODE
+
+#include <SPI.h>
 
 // RGB LED pins - CYD uses active LOW LEDs
 #define RGB_LED_R 4
 #define RGB_LED_G 16
 #define RGB_LED_B 17
 
-// Diagnostic v3 - EXACT match to working Aura initialization sequence
+// ============================================================================
+// MANUAL SPI DISPLAY TEST - bypasses TFT_eSPI to directly test SPI bus
+// ============================================================================
+
+// HSPI pins (CYD standard)
+#define HSPI_MISO 12
+#define HSPI_MOSI 13
+#define HSPI_SCLK 14
+#define TFT_CS_PIN 15
+#define TFT_DC_PIN 2
+
+SPIClass hspi(HSPI);
+
+void sendCommand(uint8_t cmd) {
+  digitalWrite(TFT_DC_PIN, LOW);
+  digitalWrite(TFT_CS_PIN, LOW);
+  hspi.transfer(cmd);
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+void sendData(uint8_t data) {
+  digitalWrite(TFT_DC_PIN, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  hspi.transfer(data);
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+void sendData16(uint16_t data) {
+  digitalWrite(TFT_DC_PIN, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  hspi.transfer16(data);
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+uint8_t readData(uint8_t cmd, uint8_t index) {
+  digitalWrite(TFT_DC_PIN, LOW);
+  digitalWrite(TFT_CS_PIN, LOW);
+  hspi.transfer(cmd);
+  digitalWrite(TFT_DC_PIN, HIGH);
+  uint8_t result = 0;
+  for (int i = 0; i <= index; i++) {
+    result = hspi.transfer(0x00);
+  }
+  digitalWrite(TFT_CS_PIN, HIGH);
+  return result;
+}
+
+void fillScreenManual(uint16_t color) {
+  // Set column address (0-239)
+  sendCommand(0x2A);
+  sendData(0); sendData(0);
+  sendData(0); sendData(239);
+  
+  // Set row address (0-319)
+  sendCommand(0x2B);
+  sendData(0); sendData(0);
+  sendData(1); sendData(63);  // 319 = 0x013F
+  
+  // Write pixels
+  sendCommand(0x2C);
+  digitalWrite(TFT_DC_PIN, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  for (uint32_t i = 0; i < 240UL * 320UL; i++) {
+    hspi.transfer16(color);
+  }
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+void initILI9341Manual() {
+  // Software reset
+  sendCommand(0x01);
+  delay(150);
+  
+  // Sleep out
+  sendCommand(0x11);
+  delay(150);
+  
+  // Display ON
+  sendCommand(0x29);
+  delay(50);
+  
+  // Memory Access Control - try different orientations
+  sendCommand(0x36);
+  sendData(0x48);  // MX, BGR
+  
+  // Pixel format 16 bit
+  sendCommand(0x3A);
+  sendData(0x55);
+}
+
+// Diagnostic v4 - Manual SPI test to bypass TFT_eSPI config
 void diagnostic_setup() {
   Serial.begin(115200);
-  delay(100);  // Match Aura's 100ms delay
+  delay(500);
   
   Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v3");
-  Serial.println("    (Aura-compatible init sequence)");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v4");
+  Serial.println("    MANUAL SPI TEST (bypasses TFT_eSPI)");
   Serial.println("========================================");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
   Serial.printf("CPU: %d MHz, Heap: %d bytes\n", ESP.getCpuFreqMHz(), ESP.getFreeHeap());
   Serial.println("========================================\n");
   
-  // ============================================
-  // AURA-COMPATIBLE INITIALIZATION SEQUENCE
-  // (Exact order from working Aura firmware)
-  // ============================================
-  
-  // Step 1: TFT init FIRST (like Aura does)
-  Serial.println("[1] tft.init() - FIRST like Aura...");
-  Serial.printf("    Pins: MISO=12, MOSI=13, SCLK=14, CS=15, DC=2\n");
-  tft.init();
-  // NOTE: Aura does NOT call setRotation() after init
-  Serial.println("    Done (no setRotation call)");
-  
-  // Step 2: Backlight AFTER tft.init (like Aura)
-  Serial.println("\n[2] Backlight init AFTER tft.init...");
-  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-  // Aura uses analogWrite for backlight, not digitalWrite
-  analogWrite(LCD_BACKLIGHT_PIN, 255);  // Full brightness
-  Serial.println("    Done - analogWrite(255)");
-  
-  // Step 3: RGB LED init (for visual feedback)
-  Serial.println("\n[3] RGB LED init...");
+  // Step 1: RGB LED init (for visual feedback)
+  Serial.println("[1] RGB LED init...");
   pinMode(RGB_LED_R, OUTPUT);
   pinMode(RGB_LED_G, OUTPUT);  
   pinMode(RGB_LED_B, OUTPUT);
   digitalWrite(RGB_LED_R, HIGH);  // OFF (active LOW)
   digitalWrite(RGB_LED_G, HIGH);  // OFF
   digitalWrite(RGB_LED_B, HIGH);  // OFF
-  Serial.println("    Done - all OFF");
+  Serial.println("    Done");
   
-  // Step 4: Test display with colors
-  Serial.println("\n[4] Color fill test (1 sec each)...");
+  // Step 2: Backlight ON
+  Serial.println("\n[2] Backlight on pin 21...");
+  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
+  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);  // Try HIGH first
+  Serial.println("    Set HIGH");
+  delay(100);
+  
+  // Step 3: Manual SPI init on HSPI
+  Serial.println("\n[3] Manual HSPI init...");
+  Serial.printf("    SCLK=%d, MISO=%d, MOSI=%d\n", HSPI_SCLK, HSPI_MISO, HSPI_MOSI);
+  Serial.printf("    CS=%d, DC=%d\n", TFT_CS_PIN, TFT_DC_PIN);
+  
+  pinMode(TFT_CS_PIN, OUTPUT);
+  pinMode(TFT_DC_PIN, OUTPUT);
+  digitalWrite(TFT_CS_PIN, HIGH);
+  digitalWrite(TFT_DC_PIN, HIGH);
+  
+  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, TFT_CS_PIN);
+  hspi.setFrequency(10000000);  // 10MHz - conservative
+  hspi.setDataMode(SPI_MODE0);
+  Serial.println("    SPI started at 10MHz");
+  
+  // Step 4: Read Display ID via manual SPI
+  Serial.println("\n[4] Reading Display ID (cmd 0x04)...");
+  uint8_t id1 = readData(0x04, 1);
+  uint8_t id2 = readData(0x04, 2);  
+  uint8_t id3 = readData(0x04, 3);
+  Serial.printf("    ID bytes: 0x%02X 0x%02X 0x%02X\n", id1, id2, id3);
+  
+  // Also try RDDID command
+  Serial.println("\n[5] Reading RDDID (cmd 0xD3)...");
+  uint8_t d1 = readData(0xD3, 1);
+  uint8_t d2 = readData(0xD3, 2);
+  uint8_t d3 = readData(0xD3, 3);
+  Serial.printf("    RDDID: 0x%02X 0x%02X 0x%02X\n", d1, d2, d3);
+  
+  // Step 5: Try display init
+  Serial.println("\n[6] Manual ILI9341 init...");
+  initILI9341Manual();
+  Serial.println("    Init sequence sent");
+  
+  // Step 6: Fill screen with colors
+  Serial.println("\n[7] Color test (manual SPI)...");
   
   Serial.println("    RED...");
-  tft.fillScreen(TFT_RED);
-  digitalWrite(RGB_LED_R, LOW);  // Red LED ON
-  delay(1000);
+  fillScreenManual(0xF800);  // Red in RGB565
+  digitalWrite(RGB_LED_R, LOW);
+  delay(1500);
   digitalWrite(RGB_LED_R, HIGH);
   
-  Serial.println("    GREEN...");  
-  tft.fillScreen(TFT_GREEN);
-  digitalWrite(RGB_LED_G, LOW);  // Green LED ON
-  delay(1000);
+  Serial.println("    GREEN...");
+  fillScreenManual(0x07E0);  // Green
+  digitalWrite(RGB_LED_G, LOW);
+  delay(1500);
   digitalWrite(RGB_LED_G, HIGH);
   
   Serial.println("    BLUE...");
-  tft.fillScreen(TFT_BLUE);
-  digitalWrite(RGB_LED_B, LOW);  // Blue LED ON
-  delay(1000);
+  fillScreenManual(0x001F);  // Blue
+  digitalWrite(RGB_LED_B, LOW);
+  delay(1500);
   digitalWrite(RGB_LED_B, HIGH);
   
   Serial.println("    WHITE...");
-  tft.fillScreen(TFT_WHITE);
+  fillScreenManual(0xFFFF);
   delay(1000);
   
-  // Step 5: Test pattern
-  Serial.println("\n[5] Drawing test pattern...");
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, 120, 160, TFT_RED);
-  tft.fillRect(120, 0, 120, 160, TFT_GREEN);  
-  tft.fillRect(0, 160, 120, 160, TFT_BLUE);
-  tft.fillRect(120, 160, 120, 160, TFT_YELLOW);
+  // Step 7: If still black, try LOW backlight (some boards are inverted)
+  Serial.println("\n[8] Testing inverted backlight...");
+  digitalWrite(LCD_BACKLIGHT_PIN, LOW);
+  Serial.println("    Set backlight LOW");
+  fillScreenManual(0xF800);  // Red
+  delay(2000);
   
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(50, 150);
-  tft.print("DIAG v3");
-  
-  Serial.println("    Done");
-  
-  // Step 6: Read display ID (diagnostic only, Aura doesn't do this)
-  Serial.println("\n[6] Display ID check...");
-  uint8_t id1 = tft.readcommand8(0x04, 1);
-  uint8_t id2 = tft.readcommand8(0x04, 2);
-  uint8_t id3 = tft.readcommand8(0x04, 3);
-  uint32_t displayId = (id1 << 16) | (id2 << 8) | id3;
-  Serial.printf("    Display ID: 0x%06X\n", displayId);
-  
-  Serial.println("\n[7] Touch test DISABLED");
-  Serial.println("    (Focus on display first)");
-  Serial.flush();
+  // Return to HIGH
+  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
+  Serial.println("    Set backlight HIGH");
   
   Serial.println("\n========================================");
-  Serial.println("DIAGNOSTIC COMPLETE");
-  Serial.println("If display is BLACK:");
-  Serial.println("  - Check TFT_eSPI User_Setup.h was copied to Arduino libs");
-  Serial.println("  - Verify SPI pins: MISO=12 MOSI=13 SCLK=14 CS=15 DC=2");
+  Serial.println("DIAGNOSTIC v4 COMPLETE");
+  Serial.println("");
+  Serial.println("If display is STILL BLACK:");
+  Serial.println("  1. Your board may use DIFFERENT pins!");
+  Serial.println("  2. Check if 'CYD variant' label on board");
+  Serial.println("  3. LEDs cycling = firmware running");
+  Serial.println("");
+  Serial.printf("Tested pins: SCLK=%d MOSI=%d MISO=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO);
+  Serial.printf("             CS=%d DC=%d BL=%d\n", TFT_CS_PIN, TFT_DC_PIN, LCD_BACKLIGHT_PIN);
   Serial.println("========================================");
   Serial.println("\nEntering LED blink loop...\n");
   Serial.flush();
