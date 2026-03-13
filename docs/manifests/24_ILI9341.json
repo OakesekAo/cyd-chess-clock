@@ -1,6 +1,6 @@
 ﻿{
-  "name": "ESP32 Chess Clock - 2.4\" ILI9341 (v7.1-touch)",
-  "version": "0.7.1",
+  "name": "ESP32 Chess Clock - 2.4\" ILI9341 (v7.2-touchscan)",
+  "version": "0.7.2",
   "new_install_prompt_erase": true,
   "builds": [
     {
