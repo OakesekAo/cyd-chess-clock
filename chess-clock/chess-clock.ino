@@ -627,25 +627,35 @@ void drawCrosshair(int x, int y, uint16_t color) {
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
+#define FIRMWARE_VERSION "v7.1-touch"
+#define BUILD_ID "2026-03-12-B"
+
 void diagnostic_setup() {
   Serial.begin(115200);
   delay(500);
   
-  Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v7");
-  Serial.println("    2.4\" ILI9341 + TOUCH TEST");
-  Serial.println("========================================");
+  Serial.println("\n\n");
+  Serial.println("################################################");
+  Serial.println("#                                              #");
+  Serial.println("#   ESP32 CHESS CLOCK DIAGNOSTIC " FIRMWARE_VERSION "    #");
+  Serial.println("#   Build: " BUILD_ID "                        #");
+  Serial.println("#                                              #");
+  Serial.println("################################################");
+  Serial.println("");
+  Serial.println(">>> If you see PIN SCANNER or 42 tests, you have OLD firmware!");
+  Serial.println(">>> This version does: display test + touch test only");
+  Serial.println("");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
   Serial.println("");
-  Serial.println("DISPLAY PINS:");
+  Serial.println("DISPLAY PINS (DC=27 confirmed working):");
   Serial.printf("  SPI:  SCLK=%d MOSI=%d MISO=%d CS=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO, TFT_CS_PIN);
   Serial.printf("  TFT:  DC=%d  BL=%d\n", TFT_DC_PIN, TFT_BL_PIN);
-  Serial.println("TOUCH PINS:");
+  Serial.println("TOUCH PINS (XPT2046 on VSPI):");
   Serial.printf("  SPI:  CLK=%d MOSI=%d MISO=%d CS=%d IRQ=%d\n", TOUCH_CLK, TOUCH_MOSI, TOUCH_MISO, TOUCH_CS, TOUCH_IRQ);
-  Serial.println("TOUCH CALIBRATION (2.4\" ILI9341):");
+  Serial.println("TOUCH CALIBRATION (2.4\" ILI9341 from Aura):");
   Serial.printf("  X: %d - %d\n", TOUCH_MIN_X, TOUCH_MAX_X);
   Serial.printf("  Y: %d - %d\n", TOUCH_MIN_Y, TOUCH_MAX_Y);
-  Serial.println("========================================\n");
+  Serial.println("================================================\n");
   
   // LED init
   pinMode(RGB_LED_R, OUTPUT);
