@@ -276,15 +276,13 @@
         <div class="card">
             <h2>📦 Install Firmware</h2>
             
-            <label for="variant">Select your display variant:</label>
+            <label for="variant">Display variant:</label>
             <select id="variant" class="variant-select" onchange="updateManifest()">
-                <option value="28_ILI9341">2.8" ILI9341 (Most Common)</option>
-                <option value="24_ILI9341">2.4" ILI9341</option>
-                <option value="24_ST7789">2.4" ST7789</option>
+                <option value="24_ILI9341">2.4" ILI9341 (Diagnostic v7)</option>
             </select>
             
             <div class="install-section">
-                <esp-web-install-button id="installButton" manifest="manifests/28_ILI9341.json">
+                <esp-web-install-button id="installButton" manifest="manifests/24_ILI9341.json">
                     <button slot="activate" class="install-btn">Install Chess Clock</button>
                     <span slot="unsupported">
                         Your browser doesn't support Web Serial.<br>

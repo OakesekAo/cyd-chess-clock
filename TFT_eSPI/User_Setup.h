@@ -32,7 +32,7 @@
 #define TFT_MOSI 13
 #define TFT_SCLK 14
 #define TFT_CS   15  // Chip select control pin
-#define TFT_DC    2  // Data Command control pin
+#define TFT_DC   27  // Data Command control pin (2.4" uses 27, not 2)
 #define TFT_RST  -1  // Set to -1 if connected to ESP32 RST
 
 // Touch controller chip select (XPT2046)

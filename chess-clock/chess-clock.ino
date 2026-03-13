@@ -18,14 +18,20 @@
 #define CC_DIAGNOSTIC_MODE
 
 #include <Arduino.h>
+
+// Only include heavy libraries when NOT in diagnostic mode
+#ifndef CC_DIAGNOSTIC_MODE
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <XPT2046_Touchscreen.h>
 #include <Preferences.h>
+#endif
+
+#include <XPT2046_Touchscreen.h>
 
 // Uncomment to enable touch debugging
 // #define CC_DEBUG_TOUCH
 
+#ifndef CC_DIAGNOSTIC_MODE
 #include "config/screen_select.h"
 
 // Touch controller pins (XPT2046 on separate SPI bus)
@@ -463,52 +469,62 @@ void create_ui() {
   lv_obj_center(lbl_reset);
 }
 
+#endif  // !CC_DIAGNOSTIC_MODE (end of chess clock code)
+
 // ============================================================================
-// DIAGNOSTIC MODE v6 - PIN SCANNER - Cycle through pin configs
+// DIAGNOSTIC MODE v7 - 2.4" ILI9341 + TOUCH TEST
 // ============================================================================
 
 #ifdef CC_DIAGNOSTIC_MODE
 
 #include <SPI.h>
 
-// RGB LED pins - CYD variant with swapped G/B
+// RGB LED pins - your board variant has G/B swapped
 #define RGB_LED_R 4
-#define RGB_LED_G 17  // SWAPPED for your board variant
-#define RGB_LED_B 16  // SWAPPED for your board variant
+#define RGB_LED_G 17
+#define RGB_LED_B 16
 
-// HSPI pins (confirmed working - SPI responded)
+// DISPLAY PINS - confirmed from pin scanner + Aura 2.4" config
 #define HSPI_MISO 12
 #define HSPI_MOSI 13
 #define HSPI_SCLK 14
 #define TFT_CS_PIN 15
+#define TFT_DC_PIN 27   // KEY FIX: 2.4" uses DC=27, not DC=2!
+#define TFT_BL_PIN 21
 
-// Pins to scan
-const int DC_PINS[] = {2, 27, 0, 4, 5, 22};  // Common DC pin options
-const int BL_PINS[] = {21, 22, 27, 5, 4, 17, 16};  // Common backlight pins
-const int NUM_DC = sizeof(DC_PINS) / sizeof(DC_PINS[0]);
-const int NUM_BL = sizeof(BL_PINS) / sizeof(BL_PINS[0]);
+// TOUCH PINS - from Aura (XPT2046 on separate VSPI bus)
+#define TOUCH_CLK  25
+#define TOUCH_MISO 39
+#define TOUCH_MOSI 32
+#define TOUCH_CS   33
+#define TOUCH_IRQ  36
 
-int currentDC = 2;  // Will be updated during scan
-int currentBL = 21;
+// Touch calibration for 2.4" ILI9341 (from Aura)
+#define TOUCH_MIN_X 200
+#define TOUCH_MAX_X 3700
+#define TOUCH_MIN_Y 240
+#define TOUCH_MAX_Y 3800
 
 SPIClass hspi(HSPI);
+SPIClass touchSPI(VSPI);
+XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_IRQ);
 
-void writeCommandPin(uint8_t cmd, int dcPin) {
-  digitalWrite(dcPin, LOW);
+void writeCmd(uint8_t cmd) {
+  digitalWrite(TFT_DC_PIN, LOW);
   digitalWrite(TFT_CS_PIN, LOW);
   hspi.transfer(cmd);
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void writeDataPin(uint8_t data, int dcPin) {
-  digitalWrite(dcPin, HIGH);
+void writeData8(uint8_t data) {
+  digitalWrite(TFT_DC_PIN, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
   hspi.transfer(data);
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void writeDataMultiPin(const uint8_t* data, size_t len, int dcPin) {
-  digitalWrite(dcPin, HIGH);
+void writeDataBuf(const uint8_t* data, size_t len) {
+  digitalWrite(TFT_DC_PIN, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
   for (size_t i = 0; i < len; i++) {
     hspi.transfer(data[i]);
@@ -516,21 +532,57 @@ void writeDataMultiPin(const uint8_t* data, size_t len, int dcPin) {
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void fillScreenPin(uint16_t color, int dcPin) {
-  // Column address set
-  writeCommandPin(0x2A, dcPin);
-  uint8_t colData[] = {0x00, 0x00, 0x00, 0xEF};
-  writeDataMultiPin(colData, 4, dcPin);
+// Full ILI9341 initialization
+void initDisplay() {
+  Serial.println("  [Reset]");
+  writeCmd(0x01);  // Software reset
+  delay(150);
   
-  // Row address set  
-  writeCommandPin(0x2B, dcPin);
-  uint8_t rowData[] = {0x00, 0x00, 0x01, 0x3F};
-  writeDataMultiPin(rowData, 4, dcPin);
+  Serial.println("  [Power Control]");
+  writeCmd(0xCB); uint8_t d1[] = {0x39, 0x2C, 0x00, 0x34, 0x02}; writeDataBuf(d1, 5);
+  writeCmd(0xCF); uint8_t d2[] = {0x00, 0xC1, 0x30}; writeDataBuf(d2, 3);
+  writeCmd(0xE8); uint8_t d3[] = {0x85, 0x00, 0x78}; writeDataBuf(d3, 3);
+  writeCmd(0xEA); uint8_t d4[] = {0x00, 0x00}; writeDataBuf(d4, 2);
+  writeCmd(0xED); uint8_t d5[] = {0x64, 0x03, 0x12, 0x81}; writeDataBuf(d5, 4);
+  writeCmd(0xF7); writeData8(0x20);
+  writeCmd(0xC0); writeData8(0x23);
+  writeCmd(0xC1); writeData8(0x10);
+  writeCmd(0xC5); uint8_t d6[] = {0x3E, 0x28}; writeDataBuf(d6, 2);
+  writeCmd(0xC7); writeData8(0x86);
   
-  // Memory write
-  writeCommandPin(0x2C, dcPin);
-  digitalWrite(dcPin, HIGH);
+  Serial.println("  [Memory/Pixel]");
+  writeCmd(0x36); writeData8(0x48);  // Memory Access Control: MX, BGR
+  writeCmd(0x3A); writeData8(0x55);  // 16-bit color
+  
+  Serial.println("  [Timing]");
+  writeCmd(0xB1); uint8_t d7[] = {0x00, 0x18}; writeDataBuf(d7, 2);
+  writeCmd(0xB6); uint8_t d8[] = {0x08, 0x82, 0x27}; writeDataBuf(d8, 3);
+  writeCmd(0xF2); writeData8(0x00);
+  
+  Serial.println("  [Gamma]");
+  writeCmd(0x26); writeData8(0x01);
+  writeCmd(0xE0); uint8_t gp[] = {0x0F,0x31,0x2B,0x0C,0x0E,0x08,0x4E,0xF1,0x37,0x07,0x10,0x03,0x0E,0x09,0x00}; writeDataBuf(gp, 15);
+  writeCmd(0xE1); uint8_t gn[] = {0x00,0x0E,0x14,0x03,0x11,0x07,0x31,0xC1,0x48,0x08,0x0F,0x0C,0x31,0x36,0x0F}; writeDataBuf(gn, 15);
+  
+  Serial.println("  [Display ON]");
+  writeCmd(0x11); delay(120);  // Sleep out
+  writeCmd(0x29); delay(50);   // Display on
+}
+
+void fillScreen(uint16_t color) {
+  // Set full screen window (240x320)
+  writeCmd(0x2A);  // Column address
+  uint8_t col[] = {0x00, 0x00, 0x00, 0xEF};  // 0-239
+  writeDataBuf(col, 4);
+  
+  writeCmd(0x2B);  // Row address
+  uint8_t row[] = {0x00, 0x00, 0x01, 0x3F};  // 0-319
+  writeDataBuf(row, 4);
+  
+  writeCmd(0x2C);  // Memory write
+  digitalWrite(TFT_DC_PIN, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
+  
   uint16_t swapped = (color >> 8) | (color << 8);
   for (uint32_t i = 0; i < 240UL * 320UL; i++) {
     hspi.transfer16(swapped);
@@ -538,190 +590,189 @@ void fillScreenPin(uint16_t color, int dcPin) {
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void initDisplayPin(int dcPin) {
-  // Software reset
-  writeCommandPin(0x01, dcPin);
-  delay(150);
+// Draw a small crosshair at position
+void drawCrosshair(int x, int y, uint16_t color) {
+  // Clamp to screen
+  if (x < 5) x = 5;
+  if (x > 234) x = 234;
+  if (y < 5) y = 5;
+  if (y > 314) y = 314;
   
-  // Power control A
-  writeCommandPin(0xCB, dcPin);
-  uint8_t pca[] = {0x39, 0x2C, 0x00, 0x34, 0x02};
-  writeDataMultiPin(pca, 5, dcPin);
+  uint16_t swapped = (color >> 8) | (color << 8);
   
-  // Power control B
-  writeCommandPin(0xCF, dcPin);
-  uint8_t pcb[] = {0x00, 0xC1, 0x30};
-  writeDataMultiPin(pcb, 3, dcPin);
+  // Horizontal line (10px centered at x,y)
+  writeCmd(0x2A);
+  uint8_t col1[] = {0, (uint8_t)(x-5), 0, (uint8_t)(x+5)};
+  writeDataBuf(col1, 4);
+  writeCmd(0x2B);
+  uint8_t row1[] = {(uint8_t)(y >> 8), (uint8_t)(y & 0xFF), (uint8_t)(y >> 8), (uint8_t)(y & 0xFF)};
+  writeDataBuf(row1, 4);
+  writeCmd(0x2C);
+  digitalWrite(TFT_DC_PIN, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  for (int i = 0; i < 11; i++) hspi.transfer16(swapped);
+  digitalWrite(TFT_CS_PIN, HIGH);
   
-  // Power control 1
-  writeCommandPin(0xC0, dcPin);
-  writeDataPin(0x23, dcPin);
-  
-  // Power control 2
-  writeCommandPin(0xC1, dcPin);
-  writeDataPin(0x10, dcPin);
-  
-  // VCOM control 1
-  writeCommandPin(0xC5, dcPin);
-  uint8_t vcom1[] = {0x3E, 0x28};
-  writeDataMultiPin(vcom1, 2, dcPin);
-  
-  // Memory Access Control
-  writeCommandPin(0x36, dcPin);
-  writeDataPin(0x48, dcPin);
-  
-  // Pixel Format
-  writeCommandPin(0x3A, dcPin);
-  writeDataPin(0x55, dcPin);
-  
-  // Frame rate
-  writeCommandPin(0xB1, dcPin);
-  uint8_t frc[] = {0x00, 0x18};
-  writeDataMultiPin(frc, 2, dcPin);
-  
-  // Sleep out
-  writeCommandPin(0x11, dcPin);
-  delay(150);
-  
-  // Display on
-  writeCommandPin(0x29, dcPin);
-  delay(50);
+  // Vertical line (10px centered at x,y)
+  writeCmd(0x2A);
+  uint8_t col2[] = {0, (uint8_t)x, 0, (uint8_t)x};
+  writeDataBuf(col2, 4);
+  writeCmd(0x2B);
+  uint8_t row2[] = {(uint8_t)((y-5) >> 8), (uint8_t)((y-5) & 0xFF), (uint8_t)((y+5) >> 8), (uint8_t)((y+5) & 0xFF)};
+  writeDataBuf(row2, 4);
+  writeCmd(0x2C);
+  digitalWrite(TFT_DC_PIN, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  for (int i = 0; i < 11; i++) hspi.transfer16(swapped);
+  digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-// Diagnostic v6 - Pin Scanner
 void diagnostic_setup() {
   Serial.begin(115200);
   delay(500);
   
   Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v6");
-  Serial.println("           PIN SCANNER MODE");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v7");
+  Serial.println("    2.4\" ILI9341 + TOUCH TEST");
   Serial.println("========================================");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
+  Serial.println("");
+  Serial.println("DISPLAY PINS:");
+  Serial.printf("  SPI:  SCLK=%d MOSI=%d MISO=%d CS=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO, TFT_CS_PIN);
+  Serial.printf("  TFT:  DC=%d  BL=%d\n", TFT_DC_PIN, TFT_BL_PIN);
+  Serial.println("TOUCH PINS:");
+  Serial.printf("  SPI:  CLK=%d MOSI=%d MISO=%d CS=%d IRQ=%d\n", TOUCH_CLK, TOUCH_MOSI, TOUCH_MISO, TOUCH_CS, TOUCH_IRQ);
+  Serial.println("TOUCH CALIBRATION (2.4\" ILI9341):");
+  Serial.printf("  X: %d - %d\n", TOUCH_MIN_X, TOUCH_MAX_X);
+  Serial.printf("  Y: %d - %d\n", TOUCH_MIN_Y, TOUCH_MAX_Y);
   Serial.println("========================================\n");
   
-  Serial.println("CONFIRMED WORKING (SPI responded):");
-  Serial.printf("  SCLK=%d  MOSI=%d  MISO=%d  CS=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO, TFT_CS_PIN);
-  Serial.println("\nWILL SCAN:");
-  Serial.printf("  DC pins: ");
-  for (int i = 0; i < NUM_DC; i++) Serial.printf("%d ", DC_PINS[i]);
-  Serial.printf("\n  BL pins: ");
-  for (int i = 0; i < NUM_BL; i++) Serial.printf("%d ", BL_PINS[i]);
-  Serial.println("\n");
-  
-  // RGB LED init
+  // LED init
   pinMode(RGB_LED_R, OUTPUT);
-  pinMode(RGB_LED_G, OUTPUT);  
+  pinMode(RGB_LED_G, OUTPUT);
   pinMode(RGB_LED_B, OUTPUT);
   digitalWrite(RGB_LED_R, HIGH);
-  digitalWrite(RGB_LED_G, HIGH);
+  digitalWrite(RGB_LED_G, HIGH);  
   digitalWrite(RGB_LED_B, HIGH);
   
-  // SPI init
+  // Backlight ON
+  Serial.println("[1] Backlight ON...");
+  pinMode(TFT_BL_PIN, OUTPUT);
+  digitalWrite(TFT_BL_PIN, HIGH);
+  
+  // Display SPI init
+  Serial.println("[2] Display SPI init (HSPI)...");
   pinMode(TFT_CS_PIN, OUTPUT);
+  pinMode(TFT_DC_PIN, OUTPUT);
   digitalWrite(TFT_CS_PIN, HIGH);
+  digitalWrite(TFT_DC_PIN, HIGH);
   hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, TFT_CS_PIN);
-  hspi.setFrequency(27000000);
+  hspi.setFrequency(40000000);
   hspi.setDataMode(SPI_MODE0);
+  Serial.println("    HSPI @ 40MHz - OK");
   
-  // Initialize all potential DC pins as outputs
-  for (int i = 0; i < NUM_DC; i++) {
-    pinMode(DC_PINS[i], OUTPUT);
-    digitalWrite(DC_PINS[i], HIGH);
-  }
+  // Display init
+  Serial.println("[3] Display init...");
+  initDisplay();
+  Serial.println("    ILI9341 initialized");
   
-  // Initialize all potential BL pins as outputs  
-  for (int i = 0; i < NUM_BL; i++) {
-    pinMode(BL_PINS[i], OUTPUT);
-    digitalWrite(BL_PINS[i], LOW);  // Start all OFF
-  }
+  // Color test
+  Serial.println("[4] Display color test...");
   
-  Serial.println("========================================");
-  Serial.println("STARTING PIN SCAN - Watch for display!");
-  Serial.println("========================================\n");
+  Serial.println("    RED");
+  fillScreen(0xF800);
+  digitalWrite(RGB_LED_R, LOW);
+  delay(1500);
+  digitalWrite(RGB_LED_R, HIGH);
   
-  int testNum = 0;
+  Serial.println("    GREEN");
+  fillScreen(0x07E0);
+  digitalWrite(RGB_LED_G, LOW);
+  delay(1500);
+  digitalWrite(RGB_LED_G, HIGH);
   
-  // Scan all DC + BL combinations
-  for (int dc = 0; dc < NUM_DC; dc++) {
-    for (int bl = 0; bl < NUM_BL; bl++) {
-      testNum++;
-      currentDC = DC_PINS[dc];
-      currentBL = BL_PINS[bl];
-      
-      // Turn off all backlights first
-      for (int i = 0; i < NUM_BL; i++) {
-        digitalWrite(BL_PINS[i], LOW);
-      }
-      
-      Serial.println("----------------------------------------");
-      Serial.printf("TEST #%d: DC=%d, BL=%d\n", testNum, currentDC, currentBL);
-      Serial.println("----------------------------------------");
-      
-      // Flash LED to show test number
-      digitalWrite(RGB_LED_R, (testNum % 3 == 0) ? LOW : HIGH);
-      digitalWrite(RGB_LED_G, (testNum % 3 == 1) ? LOW : HIGH);
-      digitalWrite(RGB_LED_B, (testNum % 3 == 2) ? LOW : HIGH);
-      
-      // Init display with this DC pin
-      Serial.printf("  Initializing with DC=%d...\n", currentDC);
-      initDisplayPin(currentDC);
-      
-      // Try backlight HIGH
-      Serial.printf("  BL=%d HIGH...\n", currentBL);
-      digitalWrite(currentBL, HIGH);
-      fillScreenPin(0xF800, currentDC);  // RED
-      delay(1500);
-      
-      // Try backlight LOW (inverted)
-      Serial.printf("  BL=%d LOW...\n", currentBL);
-      digitalWrite(currentBL, LOW);
-      fillScreenPin(0x07E0, currentDC);  // GREEN
-      delay(1500);
-      
-      Serial.println();
-    }
-  }
+  Serial.println("    BLUE");
+  fillScreen(0x001F);
+  digitalWrite(RGB_LED_B, LOW);
+  delay(1500);
+  digitalWrite(RGB_LED_B, HIGH);
   
-  // Turn all backlights ON at the end
-  for (int i = 0; i < NUM_BL; i++) {
-    digitalWrite(BL_PINS[i], HIGH);
-  }
+  // Touch init
+  Serial.println("\n[5] Touch SPI init (VSPI)...");
+  touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
+  ts.begin(touchSPI);
+  ts.setRotation(0);  // Match display rotation
+  Serial.println("    XPT2046 initialized on VSPI");
+  
+  // Prepare for touch test
+  Serial.println("\n[6] Touch test mode starting...");
+  fillScreen(0x0000);  // Black background
   
   Serial.println("\n========================================");
-  Serial.println("PIN SCAN COMPLETE!");
+  Serial.println("DISPLAY TEST COMPLETE");
+  Serial.println("Now entering TOUCH TEST mode:");
   Serial.println("");
-  Serial.println("If you saw colors on the display,");
-  Serial.println("note which TEST # worked and tell me!");
+  Serial.println("  Touch the screen - watch for:");
+  Serial.println("  1. Crosshair appears at touch point");
+  Serial.println("  2. Serial output shows coordinates");
   Serial.println("");
-  Serial.printf("Scanned %d combinations\n", testNum);
+  Serial.println("  Good calibration = crosshair under finger");
+  Serial.println("  Bad calibration = crosshair offset");
   Serial.println("========================================\n");
-  Serial.flush();
 }
 
 void diagnostic_loop() {
-  static uint32_t lastBlink = 0;
-  static int ledState = 0;
+  static uint32_t lastTouch = 0;
+  static int lastX = -1, lastY = -1;
   
-  // Blink RGB LED in sequence to show firmware is running
-  if (millis() - lastBlink > 1000) {
-    lastBlink = millis();
+  // Check for touch
+  if (ts.tirqTouched() && ts.touched()) {
+    TS_Point p = ts.getPoint();
     
-    // Turn all off
-    digitalWrite(RGB_LED_R, HIGH);
-    digitalWrite(RGB_LED_G, HIGH);
-    digitalWrite(RGB_LED_B, HIGH);
+    // Raw values
+    int raw_x = p.x;
+    int raw_y = p.y;
+    int raw_z = p.z;
     
-    // Turn one on
-    switch (ledState) {
-      case 0: digitalWrite(RGB_LED_R, LOW); Serial.println("LED: RED"); break;
-      case 1: digitalWrite(RGB_LED_G, LOW); Serial.println("LED: GREEN"); break;
-      case 2: digitalWrite(RGB_LED_B, LOW); Serial.println("LED: BLUE"); break;
+    // Apply calibration (from Aura 2.4" ILI9341)
+    int constrained_x = constrain(raw_x, TOUCH_MIN_X, TOUCH_MAX_X);
+    int constrained_y = constrain(raw_y, TOUCH_MIN_Y, TOUCH_MAX_Y);
+    
+    // Map to screen coordinates
+    int screen_x = map(constrained_x, TOUCH_MIN_X, TOUCH_MAX_X, 0, 239);
+    int screen_y = map(constrained_y, TOUCH_MIN_Y, TOUCH_MAX_Y, 0, 319);
+    
+    // Final bounds check
+    screen_x = constrain(screen_x, 0, 239);
+    screen_y = constrain(screen_y, 0, 319);
+    
+    // Only process if enough time passed (debounce)
+    if (millis() - lastTouch > 50) {
+      lastTouch = millis();
+      
+      // Erase previous crosshair
+      if (lastX >= 0 && lastY >= 0) {
+        drawCrosshair(lastX, lastY, 0x0000);  // Black
+      }
+      
+      // Draw new crosshair
+      drawCrosshair(screen_x, screen_y, 0xFFFF);  // White
+      lastX = screen_x;
+      lastY = screen_y;
+      
+      // LED feedback
+      digitalWrite(RGB_LED_G, LOW);
+      
+      // Debug output
+      Serial.printf("TOUCH: raw(%d,%d,z=%d) -> screen(%d,%d)\n", 
+                    raw_x, raw_y, raw_z, screen_x, screen_y);
     }
-    ledState = (ledState + 1) % 3;
+  } else {
+    // No touch - turn off LED
+    digitalWrite(RGB_LED_G, HIGH);
   }
   
-  delay(100);
+  delay(10);
 }
 
 void setup() {

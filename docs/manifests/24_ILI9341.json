@@ -1,6 +1,6 @@
 ﻿{
-  "name": "ESP32 Chess Clock - 2.4\" ILI9341",
-  "version": "0.1.0",
+  "name": "ESP32 Chess Clock - 2.4\" ILI9341 (Diagnostic v7)",
+  "version": "0.7.0",
   "new_install_prompt_erase": true,
   "builds": [
     {
