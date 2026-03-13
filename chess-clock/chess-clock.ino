@@ -464,7 +464,7 @@ void create_ui() {
 }
 
 // ============================================================================
-// DIAGNOSTIC MODE v5 - Full ILI9341 init + CYD variant detection
+// DIAGNOSTIC MODE v6 - PIN SCANNER - Cycle through pin configs
 // ============================================================================
 
 #ifdef CC_DIAGNOSTIC_MODE
@@ -476,31 +476,39 @@ void create_ui() {
 #define RGB_LED_G 17  // SWAPPED for your board variant
 #define RGB_LED_B 16  // SWAPPED for your board variant
 
-// HSPI pins (CYD standard)
+// HSPI pins (confirmed working - SPI responded)
 #define HSPI_MISO 12
 #define HSPI_MOSI 13
 #define HSPI_SCLK 14
 #define TFT_CS_PIN 15
-#define TFT_DC_PIN 2
+
+// Pins to scan
+const int DC_PINS[] = {2, 27, 0, 4, 5, 22};  // Common DC pin options
+const int BL_PINS[] = {21, 22, 27, 5, 4, 17, 16};  // Common backlight pins
+const int NUM_DC = sizeof(DC_PINS) / sizeof(DC_PINS[0]);
+const int NUM_BL = sizeof(BL_PINS) / sizeof(BL_PINS[0]);
+
+int currentDC = 2;  // Will be updated during scan
+int currentBL = 21;
 
 SPIClass hspi(HSPI);
 
-void writeCommand(uint8_t cmd) {
-  digitalWrite(TFT_DC_PIN, LOW);
+void writeCommandPin(uint8_t cmd, int dcPin) {
+  digitalWrite(dcPin, LOW);
   digitalWrite(TFT_CS_PIN, LOW);
   hspi.transfer(cmd);
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void writeData(uint8_t data) {
-  digitalWrite(TFT_DC_PIN, HIGH);
+void writeDataPin(uint8_t data, int dcPin) {
+  digitalWrite(dcPin, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
   hspi.transfer(data);
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void writeDataMulti(const uint8_t* data, size_t len) {
-  digitalWrite(TFT_DC_PIN, HIGH);
+void writeDataMultiPin(const uint8_t* data, size_t len, int dcPin) {
+  digitalWrite(dcPin, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
   for (size_t i = 0; i < len; i++) {
     hspi.transfer(data[i]);
@@ -508,36 +516,21 @@ void writeDataMulti(const uint8_t* data, size_t len) {
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-uint8_t readData(uint8_t cmd, uint8_t index) {
-  digitalWrite(TFT_DC_PIN, LOW);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(cmd);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  uint8_t result = 0;
-  for (int i = 0; i <= index; i++) {
-    result = hspi.transfer(0x00);
-  }
-  digitalWrite(TFT_CS_PIN, HIGH);
-  return result;
-}
-
-void fillScreenFull(uint16_t color) {
+void fillScreenPin(uint16_t color, int dcPin) {
   // Column address set
-  writeCommand(0x2A);
-  uint8_t colData[] = {0x00, 0x00, 0x00, 0xEF};  // 0-239
-  writeDataMulti(colData, 4);
+  writeCommandPin(0x2A, dcPin);
+  uint8_t colData[] = {0x00, 0x00, 0x00, 0xEF};
+  writeDataMultiPin(colData, 4, dcPin);
   
   // Row address set  
-  writeCommand(0x2B);
-  uint8_t rowData[] = {0x00, 0x00, 0x01, 0x3F};  // 0-319
-  writeDataMulti(rowData, 4);
+  writeCommandPin(0x2B, dcPin);
+  uint8_t rowData[] = {0x00, 0x00, 0x01, 0x3F};
+  writeDataMultiPin(rowData, 4, dcPin);
   
   // Memory write
-  writeCommand(0x2C);
-  digitalWrite(TFT_DC_PIN, HIGH);
+  writeCommandPin(0x2C, dcPin);
+  digitalWrite(dcPin, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
-  
-  // Swap bytes for correct color (ESP32 is little-endian)
   uint16_t swapped = (color >> 8) | (color << 8);
   for (uint32_t i = 0; i < 240UL * 320UL; i++) {
     hspi.transfer16(swapped);
@@ -545,202 +538,164 @@ void fillScreenFull(uint16_t color) {
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-// COMPLETE ILI9341 initialization sequence (matches TFT_eSPI)
-void initILI9341Full() {
-  Serial.println("    [Reset]");
-  writeCommand(0x01);  // Software reset
+void initDisplayPin(int dcPin) {
+  // Software reset
+  writeCommandPin(0x01, dcPin);
   delay(150);
   
-  Serial.println("    [Power Control]");
-  writeCommand(0xCB);  // Power control A
+  // Power control A
+  writeCommandPin(0xCB, dcPin);
   uint8_t pca[] = {0x39, 0x2C, 0x00, 0x34, 0x02};
-  writeDataMulti(pca, 5);
+  writeDataMultiPin(pca, 5, dcPin);
   
-  writeCommand(0xCF);  // Power control B
+  // Power control B
+  writeCommandPin(0xCF, dcPin);
   uint8_t pcb[] = {0x00, 0xC1, 0x30};
-  writeDataMulti(pcb, 3);
+  writeDataMultiPin(pcb, 3, dcPin);
   
-  writeCommand(0xE8);  // Driver timing control A
-  uint8_t dtca[] = {0x85, 0x00, 0x78};
-  writeDataMulti(dtca, 3);
+  // Power control 1
+  writeCommandPin(0xC0, dcPin);
+  writeDataPin(0x23, dcPin);
   
-  writeCommand(0xEA);  // Driver timing control B
-  uint8_t dtcb[] = {0x00, 0x00};
-  writeDataMulti(dtcb, 2);
+  // Power control 2
+  writeCommandPin(0xC1, dcPin);
+  writeDataPin(0x10, dcPin);
   
-  writeCommand(0xED);  // Power on sequence control
-  uint8_t posc[] = {0x64, 0x03, 0x12, 0x81};
-  writeDataMulti(posc, 4);
-  
-  writeCommand(0xF7);  // Pump ratio control
-  writeData(0x20);
-  
-  writeCommand(0xC0);  // Power control 1
-  writeData(0x23);
-  
-  writeCommand(0xC1);  // Power control 2
-  writeData(0x10);
-  
-  writeCommand(0xC5);  // VCOM control 1
+  // VCOM control 1
+  writeCommandPin(0xC5, dcPin);
   uint8_t vcom1[] = {0x3E, 0x28};
-  writeDataMulti(vcom1, 2);
+  writeDataMultiPin(vcom1, 2, dcPin);
   
-  writeCommand(0xC7);  // VCOM control 2
-  writeData(0x86);
+  // Memory Access Control
+  writeCommandPin(0x36, dcPin);
+  writeDataPin(0x48, dcPin);
   
-  Serial.println("    [Memory Access]");
-  writeCommand(0x36);  // Memory Access Control
-  writeData(0x48);     // MX, BGR
+  // Pixel Format
+  writeCommandPin(0x3A, dcPin);
+  writeDataPin(0x55, dcPin);
   
-  writeCommand(0x3A);  // Pixel Format
-  writeData(0x55);     // 16-bit
-  
-  Serial.println("    [Frame Rate]");
-  writeCommand(0xB1);  // Frame rate control
+  // Frame rate
+  writeCommandPin(0xB1, dcPin);
   uint8_t frc[] = {0x00, 0x18};
-  writeDataMulti(frc, 2);
+  writeDataMultiPin(frc, 2, dcPin);
   
-  writeCommand(0xB6);  // Display function control
-  uint8_t dfc[] = {0x08, 0x82, 0x27};
-  writeDataMulti(dfc, 3);
-  
-  writeCommand(0xF2);  // 3Gamma function disable
-  writeData(0x00);
-  
-  Serial.println("    [Gamma]");
-  writeCommand(0x26);  // Gamma curve selected
-  writeData(0x01);
-  
-  writeCommand(0xE0);  // Positive gamma correction
-  uint8_t pgc[] = {0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00};
-  writeDataMulti(pgc, 15);
-  
-  writeCommand(0xE1);  // Negative gamma correction
-  uint8_t ngc[] = {0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F};
-  writeDataMulti(ngc, 15);
-  
-  Serial.println("    [Sleep Out]");
-  writeCommand(0x11);  // Sleep out
+  // Sleep out
+  writeCommandPin(0x11, dcPin);
   delay(150);
   
-  Serial.println("    [Display ON]");
-  writeCommand(0x29);  // Display on
+  // Display on
+  writeCommandPin(0x29, dcPin);
   delay(50);
-  
-  Serial.println("    [Init Complete]");
 }
 
-// Diagnostic v5 - Full ILI9341 init sequence
+// Diagnostic v6 - Pin Scanner
 void diagnostic_setup() {
   Serial.begin(115200);
   delay(500);
   
   Serial.println("\n\n========================================");
-  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v5");
-  Serial.println("    FULL ILI9341 INIT (like TFT_eSPI)");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v6");
+  Serial.println("           PIN SCANNER MODE");
   Serial.println("========================================");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
-  Serial.printf("CPU: %d MHz, Heap: %d bytes\n", ESP.getCpuFreqMHz(), ESP.getFreeHeap());
-  Serial.println("LED pins: R=4 G=17 B=16 (swapped for your variant)");
   Serial.println("========================================\n");
   
-  // Step 1: RGB LED init (for visual feedback)
-  Serial.println("[1] RGB LED init (G/B swapped)...");
+  Serial.println("CONFIRMED WORKING (SPI responded):");
+  Serial.printf("  SCLK=%d  MOSI=%d  MISO=%d  CS=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO, TFT_CS_PIN);
+  Serial.println("\nWILL SCAN:");
+  Serial.printf("  DC pins: ");
+  for (int i = 0; i < NUM_DC; i++) Serial.printf("%d ", DC_PINS[i]);
+  Serial.printf("\n  BL pins: ");
+  for (int i = 0; i < NUM_BL; i++) Serial.printf("%d ", BL_PINS[i]);
+  Serial.println("\n");
+  
+  // RGB LED init
   pinMode(RGB_LED_R, OUTPUT);
   pinMode(RGB_LED_G, OUTPUT);  
   pinMode(RGB_LED_B, OUTPUT);
-  digitalWrite(RGB_LED_R, HIGH);  // OFF (active LOW)
-  digitalWrite(RGB_LED_G, HIGH);  // OFF
-  digitalWrite(RGB_LED_B, HIGH);  // OFF
-  Serial.println("    Done");
-  
-  // Step 2: Backlight ON
-  Serial.println("\n[2] Backlight on pin 21...");
-  pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
-  Serial.println("    Set HIGH");
-  delay(100);
-  
-  // Step 3: Manual SPI init on HSPI
-  Serial.println("\n[3] Manual HSPI init...");
-  Serial.printf("    SCLK=%d, MISO=%d, MOSI=%d\n", HSPI_SCLK, HSPI_MISO, HSPI_MOSI);
-  Serial.printf("    CS=%d, DC=%d\n", TFT_CS_PIN, TFT_DC_PIN);
-  
-  pinMode(TFT_CS_PIN, OUTPUT);
-  pinMode(TFT_DC_PIN, OUTPUT);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  
-  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, TFT_CS_PIN);
-  hspi.setFrequency(27000000);  // 27MHz - standard TFT speed
-  hspi.setDataMode(SPI_MODE0);
-  Serial.println("    SPI started at 27MHz");
-  
-  // Step 4: Read Display ID via manual SPI
-  Serial.println("\n[4] Reading Display ID (cmd 0x04)...");
-  uint8_t id1 = readData(0x04, 1);
-  uint8_t id2 = readData(0x04, 2);  
-  uint8_t id3 = readData(0x04, 3);
-  Serial.printf("    ID bytes: 0x%02X 0x%02X 0x%02X\n", id1, id2, id3);
-  
-  // Try to identify display type
-  if (id2 == 0x93 && id3 == 0x41) {
-    Serial.println("    -> ILI9341 detected!");
-  } else if (id2 == 0x85 || id2 == 0x52) {
-    Serial.println("    -> ST7789 detected!");
-  } else {
-    Serial.println("    -> Unknown display (will try ILI9341 init)");
-  }
-  
-  // Step 5: FULL ILI9341 init
-  Serial.println("\n[5] FULL ILI9341 initialization...");
-  initILI9341Full();
-  
-  // Step 6: Color test
-  Serial.println("\n[6] Color test...");
-  
-  Serial.println("    RED...");
-  fillScreenFull(0xF800);  // Red
-  digitalWrite(RGB_LED_R, LOW);
-  delay(1500);
   digitalWrite(RGB_LED_R, HIGH);
-  
-  Serial.println("    GREEN...");
-  fillScreenFull(0x07E0);  // Green
-  digitalWrite(RGB_LED_G, LOW);
-  delay(1500);
   digitalWrite(RGB_LED_G, HIGH);
-  
-  Serial.println("    BLUE...");
-  fillScreenFull(0x001F);  // Blue
-  digitalWrite(RGB_LED_B, LOW);
-  delay(1500);
   digitalWrite(RGB_LED_B, HIGH);
   
-  Serial.println("    WHITE...");
-  fillScreenFull(0xFFFF);
-  delay(1000);
+  // SPI init
+  pinMode(TFT_CS_PIN, OUTPUT);
+  digitalWrite(TFT_CS_PIN, HIGH);
+  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, TFT_CS_PIN);
+  hspi.setFrequency(27000000);
+  hspi.setDataMode(SPI_MODE0);
   
-  // Step 7: If still black, try inverted backlight
-  Serial.println("\n[7] Testing inverted backlight...");
-  digitalWrite(LCD_BACKLIGHT_PIN, LOW);
-  Serial.println("    Backlight LOW - look for display now!");
-  fillScreenFull(0xF800);  // Red
-  delay(3000);
+  // Initialize all potential DC pins as outputs
+  for (int i = 0; i < NUM_DC; i++) {
+    pinMode(DC_PINS[i], OUTPUT);
+    digitalWrite(DC_PINS[i], HIGH);
+  }
   
-  // Back to HIGH
-  digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
-  Serial.println("    Backlight HIGH");
+  // Initialize all potential BL pins as outputs  
+  for (int i = 0; i < NUM_BL; i++) {
+    pinMode(BL_PINS[i], OUTPUT);
+    digitalWrite(BL_PINS[i], LOW);  // Start all OFF
+  }
+  
+  Serial.println("========================================");
+  Serial.println("STARTING PIN SCAN - Watch for display!");
+  Serial.println("========================================\n");
+  
+  int testNum = 0;
+  
+  // Scan all DC + BL combinations
+  for (int dc = 0; dc < NUM_DC; dc++) {
+    for (int bl = 0; bl < NUM_BL; bl++) {
+      testNum++;
+      currentDC = DC_PINS[dc];
+      currentBL = BL_PINS[bl];
+      
+      // Turn off all backlights first
+      for (int i = 0; i < NUM_BL; i++) {
+        digitalWrite(BL_PINS[i], LOW);
+      }
+      
+      Serial.println("----------------------------------------");
+      Serial.printf("TEST #%d: DC=%d, BL=%d\n", testNum, currentDC, currentBL);
+      Serial.println("----------------------------------------");
+      
+      // Flash LED to show test number
+      digitalWrite(RGB_LED_R, (testNum % 3 == 0) ? LOW : HIGH);
+      digitalWrite(RGB_LED_G, (testNum % 3 == 1) ? LOW : HIGH);
+      digitalWrite(RGB_LED_B, (testNum % 3 == 2) ? LOW : HIGH);
+      
+      // Init display with this DC pin
+      Serial.printf("  Initializing with DC=%d...\n", currentDC);
+      initDisplayPin(currentDC);
+      
+      // Try backlight HIGH
+      Serial.printf("  BL=%d HIGH...\n", currentBL);
+      digitalWrite(currentBL, HIGH);
+      fillScreenPin(0xF800, currentDC);  // RED
+      delay(1500);
+      
+      // Try backlight LOW (inverted)
+      Serial.printf("  BL=%d LOW...\n", currentBL);
+      digitalWrite(currentBL, LOW);
+      fillScreenPin(0x07E0, currentDC);  // GREEN
+      delay(1500);
+      
+      Serial.println();
+    }
+  }
+  
+  // Turn all backlights ON at the end
+  for (int i = 0; i < NUM_BL; i++) {
+    digitalWrite(BL_PINS[i], HIGH);
+  }
   
   Serial.println("\n========================================");
-  Serial.println("DIAGNOSTIC v5 COMPLETE");
+  Serial.println("PIN SCAN COMPLETE!");
   Serial.println("");
-  Serial.println("Your board variant has SWAPPED G/B LEDs.");
-  Serial.println("If display is BLACK with both backlight");
-  Serial.println("settings, the display may need different");
-  Serial.println("pins or a different driver.");
-  Serial.println("========================================");
-  Serial.println("\nEntering LED blink loop...\n");
+  Serial.println("If you saw colors on the display,");
+  Serial.println("note which TEST # worked and tell me!");
+  Serial.println("");
+  Serial.printf("Scanned %d combinations\n", testNum);
+  Serial.println("========================================\n");
   Serial.flush();
 }
 
