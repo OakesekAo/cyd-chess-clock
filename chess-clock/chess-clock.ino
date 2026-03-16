@@ -508,16 +508,16 @@ SPIClass hspi(HSPI);
 #define XPT_Z1 0xB0  // Z1 pressure
 #define XPT_Z2 0xC0  // Z2 pressure
 
-// Touch calibration (from v7.3 actual data)
-// Raw X: ~650 (left) to ~3400 (right)
-// Raw Y: ~770 (top) to ~3650 (bottom)
-#define TOUCH_MIN_X 650
-#define TOUCH_MAX_X 3400
-#define TOUCH_MIN_Y 770
-#define TOUCH_MAX_Y 3650
+// Touch calibration (from v7.4 actual data)
+// Raw X: ~400 (left) to ~3800 (right)
+// Raw Y: ~370 (top) to ~3700 (bottom)
+#define TOUCH_MIN_X 400
+#define TOUCH_MAX_X 3800
+#define TOUCH_MIN_Y 370
+#define TOUCH_MAX_Y 3700
 
-#define FIRMWARE_VERSION "v7.4-quadrant"
-#define BUILD_ID "2026-03-16-C"
+#define FIRMWARE_VERSION "v7.5-quadrant"
+#define BUILD_ID "2026-03-16-D"
 
 // === DISPLAY FUNCTIONS ===
 void writeCmd(uint8_t cmd) {
@@ -621,55 +621,83 @@ void drawVLine(int x, int y, int h, uint16_t color) {
   fillRect(x, y, 1, h, color);
 }
 
-// === SPI BUS MANAGEMENT ===
-// Display and Touch share the same SPI bus - must manage CS pins carefully!
+// === TOUCH FUNCTIONS (BIT-BANG to avoid SPI conflicts with display) ===
+// Touch shares CLK/MOSI/MISO pins with display, but we bit-bang to avoid
+// interfering with the hardware SPI state used by the display.
 
-void prepareForDisplay() {
-  // Ensure touch is deselected, set display speed
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  hspi.setFrequency(40000000);
-}
-
-void prepareForTouch() {
-  // Ensure display is deselected, set touch speed
+uint16_t readTouchChannelBitBang(uint8_t cmd) {
+  // Ensure display CS is HIGH
   digitalWrite(TFT_CS_PIN, HIGH);
-  hspi.setFrequency(1000000);
-}
-
-// === TOUCH FUNCTIONS (using hardware SPI - shared bus) ===
-uint16_t readTouchChannel(uint8_t cmd) {
+  
+  // Select touch
   digitalWrite(TOUCH_CS_PIN, LOW);
-  delayMicroseconds(5);
+  delayMicroseconds(10);
   
-  hspi.transfer(cmd);
-  uint8_t hi = hspi.transfer(0);
-  uint8_t lo = hspi.transfer(0);
+  // Send command via bit-banging (8 bits, MSB first)
+  for (int i = 7; i >= 0; i--) {
+    digitalWrite(HSPI_MOSI, (cmd >> i) & 1);
+    digitalWrite(HSPI_SCLK, LOW);
+    delayMicroseconds(2);
+    digitalWrite(HSPI_SCLK, HIGH);
+    delayMicroseconds(2);
+  }
   
+  // One busy cycle
+  digitalWrite(HSPI_SCLK, LOW);
+  delayMicroseconds(2);
+  digitalWrite(HSPI_SCLK, HIGH);
+  delayMicroseconds(2);
+  
+  // Read 12-bit response
+  uint16_t result = 0;
+  for (int i = 11; i >= 0; i--) {
+    digitalWrite(HSPI_SCLK, LOW);
+    delayMicroseconds(2);
+    if (digitalRead(HSPI_MISO)) {
+      result |= (1 << i);
+    }
+    digitalWrite(HSPI_SCLK, HIGH);
+    delayMicroseconds(2);
+  }
+  
+  // Deselect touch
   digitalWrite(TOUCH_CS_PIN, HIGH);
   
-  return ((hi << 8) | lo) >> 3;  // 12-bit result
+  return result;
 }
 
 void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
-  // Make sure display CS is HIGH before touching SPI
-  prepareForTouch();
+  // Save SPI state - we're going to bit-bang
+  // First ensure display is deselected
+  digitalWrite(TFT_CS_PIN, HIGH);
+  digitalWrite(TFT_DC_PIN, HIGH);
   
-  // Read multiple samples and average for stability
+  // Set pins for bit-bang mode (they're already configured but re-confirm)
+  pinMode(HSPI_SCLK, OUTPUT);
+  pinMode(HSPI_MOSI, OUTPUT);
+  pinMode(HSPI_MISO, INPUT);
+  digitalWrite(HSPI_SCLK, LOW);
+  
+  // Read raw values with multiple samples for stability
   uint32_t sumX = 0, sumY = 0, sumZ = 0;
   const int samples = 4;
   
   for (int i = 0; i < samples; i++) {
-    sumX += readTouchChannel(XPT_X);
-    sumY += readTouchChannel(XPT_Y);
-    sumZ += readTouchChannel(XPT_Z1);
+    sumX += readTouchChannelBitBang(XPT_X);
+    sumY += readTouchChannelBitBang(XPT_Y);
+    sumZ += readTouchChannelBitBang(XPT_Z1);
   }
   
   x = sumX / samples;
   y = sumY / samples;
   z = sumZ / samples;
   
-  // Restore for display operations
-  prepareForDisplay();
+  // IMPORTANT: Re-initialize hardware SPI for display
+  // The bit-banging left the pins in GPIO mode, need to restore SPI
+  hspi.end();
+  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, -1);
+  hspi.setFrequency(40000000);
+  hspi.setDataMode(SPI_MODE0);
 }
 
 // === QUADRANT COLORS ===
