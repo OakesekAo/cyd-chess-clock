@@ -472,7 +472,7 @@ void create_ui() {
 #endif  // !CC_DIAGNOSTIC_MODE (end of chess clock code)
 
 // ============================================================================
-// DIAGNOSTIC MODE v7.3 - VISUAL TOUCH QUADRANT TEST
+// DIAGNOSTIC MODE v7.7 - DISPLAY ONLY TEST (NO TOUCH)
 // ============================================================================
 
 #ifdef CC_DIAGNOSTIC_MODE
@@ -484,7 +484,7 @@ void create_ui() {
 #define RGB_LED_G 17
 #define RGB_LED_B 16
 
-// DISPLAY PINS - CONFIRMED WORKING (DC=27!)
+// DISPLAY PINS - Testing different configurations
 #define HSPI_MISO 12
 #define HSPI_MOSI 13
 #define HSPI_SCLK 14
@@ -492,32 +492,23 @@ void create_ui() {
 #define TFT_DC_PIN 27
 #define TFT_BL_PIN 21
 
-// TOUCH PINS - CONFIRMED WORKING (shares SPI bus with display)
-#define TOUCH_CS_PIN 33
-// Touch uses same CLK/MOSI/MISO as display (14/13/12)
-
 // Screen dimensions (240x320 portrait)
 #define SCREEN_W 240
 #define SCREEN_H 320
 
 SPIClass hspi(HSPI);
 
-// XPT2046 commands
-#define XPT_X  0xD0  // X position
-#define XPT_Y  0x90  // Y position  
-#define XPT_Z1 0xB0  // Z1 pressure
-#define XPT_Z2 0xC0  // Z2 pressure
+#define FIRMWARE_VERSION "v7.8-blscan"
+#define BUILD_ID "2026-03-16-G"
 
-// Touch calibration (from v7.4 actual data)
-// Raw X: ~400 (left) to ~3800 (right)
-// Raw Y: ~370 (top) to ~3700 (bottom)
-#define TOUCH_MIN_X 400
-#define TOUCH_MAX_X 3800
-#define TOUCH_MIN_Y 370
-#define TOUCH_MAX_Y 3700
+// Touch CS pin - MUST be driven HIGH even when not using touch!
+#define TOUCH_CS_PIN 33
 
-#define FIRMWARE_VERSION "v7.6-quadrant"
-#define BUILD_ID "2026-03-16-E"
+// Candidate backlight pins to test
+// Avoiding: SPI (12/13/14), CS (15), DC (27), touch CS (33), RGB LEDs (4/16/17)
+const int blPins[] = {21, 2, 5, 22, 25, 26, 32, 0, 19, 23};
+const int numBlPins = sizeof(blPins) / sizeof(blPins[0]);
+int currentBlPin = 0;
 
 // === DISPLAY FUNCTIONS ===
 void writeCmd(uint8_t cmd) {
@@ -544,142 +535,73 @@ void writeDataBuf(const uint8_t* data, size_t len) {
 }
 
 void initDisplay() {
-  // Ensure touch CS is HIGH during display init
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  hspi.setFrequency(40000000);
+  Serial.println("    Sending ILI9341 init sequence...");
   
-  writeCmd(0x01); delay(150);
+  writeCmd(0x01); delay(150);  // Software reset
+  Serial.println("    - Software reset done");
+  
+  // Power control
   writeCmd(0xCB); uint8_t d1[] = {0x39, 0x2C, 0x00, 0x34, 0x02}; writeDataBuf(d1, 5);
   writeCmd(0xCF); uint8_t d2[] = {0x00, 0xC1, 0x30}; writeDataBuf(d2, 3);
   writeCmd(0xE8); uint8_t d3[] = {0x85, 0x00, 0x78}; writeDataBuf(d3, 3);
   writeCmd(0xEA); uint8_t d4[] = {0x00, 0x00}; writeDataBuf(d4, 2);
   writeCmd(0xED); uint8_t d5[] = {0x64, 0x03, 0x12, 0x81}; writeDataBuf(d5, 4);
   writeCmd(0xF7); writeData8(0x20);
-  writeCmd(0xC0); writeData8(0x23);
-  writeCmd(0xC1); writeData8(0x10);
-  writeCmd(0xC5); uint8_t d6[] = {0x3E, 0x28}; writeDataBuf(d6, 2);
-  writeCmd(0xC7); writeData8(0x86);
-  writeCmd(0x36); writeData8(0x48);  // Portrait mode
-  writeCmd(0x3A); writeData8(0x55);
+  writeCmd(0xC0); writeData8(0x23);  // Power control 1
+  writeCmd(0xC1); writeData8(0x10);  // Power control 2
+  writeCmd(0xC5); uint8_t d6[] = {0x3E, 0x28}; writeDataBuf(d6, 2);  // VCOM
+  writeCmd(0xC7); writeData8(0x86);  // VCOM offset
+  Serial.println("    - Power control done");
+  
+  // Memory access control (rotation)
+  writeCmd(0x36); writeData8(0x48);  // Portrait, BGR
+  writeCmd(0x3A); writeData8(0x55);  // 16-bit color
+  Serial.println("    - Memory access done");
+  
+  // Frame rate
   writeCmd(0xB1); uint8_t d7[] = {0x00, 0x18}; writeDataBuf(d7, 2);
   writeCmd(0xB6); uint8_t d8[] = {0x08, 0x82, 0x27}; writeDataBuf(d8, 3);
-  writeCmd(0xF2); writeData8(0x00);
-  writeCmd(0x26); writeData8(0x01);
+  writeCmd(0xF2); writeData8(0x00);  // Gamma disable
+  writeCmd(0x26); writeData8(0x01);  // Gamma curve 1
+  Serial.println("    - Frame rate done");
+  
+  // Gamma
   writeCmd(0xE0); uint8_t gp[] = {0x0F,0x31,0x2B,0x0C,0x0E,0x08,0x4E,0xF1,0x37,0x07,0x10,0x03,0x0E,0x09,0x00}; writeDataBuf(gp, 15);
   writeCmd(0xE1); uint8_t gn[] = {0x00,0x0E,0x14,0x03,0x11,0x07,0x31,0xC1,0x48,0x08,0x0F,0x0C,0x31,0x36,0x0F}; writeDataBuf(gn, 15);
-  writeCmd(0x11); delay(120);
-  writeCmd(0x29); delay(50);
-}
-
-void setAddrWindow(int x, int y, int w, int h) {
-  // Ensure touch is deselected before display operations
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  hspi.setFrequency(40000000);
+  Serial.println("    - Gamma done");
   
-  writeCmd(0x2A);
-  uint8_t col[] = {(uint8_t)(x >> 8), (uint8_t)x, (uint8_t)((x+w-1) >> 8), (uint8_t)(x+w-1)};
-  writeDataBuf(col, 4);
-  writeCmd(0x2B);
-  uint8_t row[] = {(uint8_t)(y >> 8), (uint8_t)y, (uint8_t)((y+h-1) >> 8), (uint8_t)(y+h-1)};
-  writeDataBuf(row, 4);
-  writeCmd(0x2C);
+  // Sleep out and display on
+  writeCmd(0x11); delay(120);  // Sleep out
+  Serial.println("    - Sleep out done");
+  writeCmd(0x29); delay(50);   // Display on
+  Serial.println("    - Display ON sent");
 }
 
 void fillScreen(uint16_t color) {
-  setAddrWindow(0, 0, SCREEN_W, SCREEN_H);
+  // Set column address
+  writeCmd(0x2A);
+  uint8_t col[] = {0x00, 0x00, 0x00, 0xEF};  // 0-239
+  writeDataBuf(col, 4);
+  
+  // Set row address
+  writeCmd(0x2B);
+  uint8_t row[] = {0x00, 0x00, 0x01, 0x3F};  // 0-319
+  writeDataBuf(row, 4);
+  
+  // Write to RAM
+  writeCmd(0x2C);
   digitalWrite(TFT_DC_PIN, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
+  
   uint16_t swapped = (color >> 8) | (color << 8);
   for (uint32_t i = 0; i < (uint32_t)SCREEN_W * SCREEN_H; i++) {
     hspi.transfer16(swapped);
   }
+  
   digitalWrite(TFT_CS_PIN, HIGH);
 }
 
-void fillRect(int x, int y, int w, int h, uint16_t color) {
-  if (x < 0) { w += x; x = 0; }
-  if (y < 0) { h += y; y = 0; }
-  if (x + w > SCREEN_W) w = SCREEN_W - x;
-  if (y + h > SCREEN_H) h = SCREEN_H - y;
-  if (w <= 0 || h <= 0) return;
-  
-  setAddrWindow(x, y, w, h);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  digitalWrite(TFT_CS_PIN, LOW);
-  uint16_t swapped = (color >> 8) | (color << 8);
-  for (int i = 0; i < w * h; i++) {
-    hspi.transfer16(swapped);
-  }
-  digitalWrite(TFT_CS_PIN, HIGH);
-}
-
-void drawHLine(int x, int y, int w, uint16_t color) {
-  fillRect(x, y, w, 1, color);
-}
-
-void drawVLine(int x, int y, int h, uint16_t color) {
-  fillRect(x, y, 1, h, color);
-}
-
-// === TOUCH FUNCTIONS (HARDWARE SPI - shared bus with display) ===
-// Key insight: Both display and touch use the same SPI bus (HSPI on pins 12/13/14)
-// We just need to manage CS pins properly and adjust speed.
-// DO NOT call hspi.end()/begin() - that corrupts display!
-
-uint16_t readTouchChannelHW(uint8_t cmd) {
-  // CRITICAL: Ensure display is deselected
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);  // Keep DC high (data mode) during touch
-  
-  // Slow down for touch controller
-  hspi.setFrequency(2500000);  // 2.5 MHz for XPT2046
-  
-  // Select touch
-  digitalWrite(TOUCH_CS_PIN, LOW);
-  delayMicroseconds(5);
-  
-  // Send command and read response
-  hspi.transfer(cmd);
-  delayMicroseconds(1);  // Small delay for conversion
-  uint8_t hi = hspi.transfer(0);
-  uint8_t lo = hspi.transfer(0);
-  
-  // Deselect touch
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  
-  // Restore fast speed for display
-  hspi.setFrequency(40000000);
-  
-  return ((hi << 8) | lo) >> 3;  // 12-bit result
-}
-
-void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
-  // Ensure display is fully deselected before touching SPI
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  delayMicroseconds(5);  // Let lines settle
-  
-  // Read raw values with multiple samples for stability
-  uint32_t sumX = 0, sumY = 0, sumZ = 0;
-  const int samples = 4;
-  
-  for (int i = 0; i < samples; i++) {
-    sumX += readTouchChannelHW(XPT_X);
-    sumY += readTouchChannelHW(XPT_Y);
-    sumZ += readTouchChannelHW(XPT_Z1);
-    delayMicroseconds(50);  // Small gap between reads
-  }
-  
-  x = sumX / samples;
-  y = sumY / samples;
-  z = sumZ / samples;
-  
-  // Ensure touch is deselected before any display operations
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  delayMicroseconds(5);
-}
-
-// === QUADRANT COLORS ===
+// === COLORS ===
 #define COLOR_BLACK   0x0000
 #define COLOR_WHITE   0xFFFF
 #define COLOR_RED     0xF800
@@ -688,81 +610,6 @@ void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
 #define COLOR_YELLOW  0xFFE0
 #define COLOR_CYAN    0x07FF
 #define COLOR_MAGENTA 0xF81F
-#define COLOR_GRAY    0x7BEF
-#define COLOR_ORANGE  0xFD20
-
-// Quadrant colors: TL, TR, BL, BR
-const uint16_t quadColors[4] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW};
-
-void drawQuadrantGrid() {
-  // Fill quadrants with distinct colors
-  int halfW = SCREEN_W / 2;
-  int halfH = SCREEN_H / 2;
-  
-  fillRect(0, 0, halfW, halfH, quadColors[0]);           // Top-left: Red
-  fillRect(halfW, 0, halfW, halfH, quadColors[1]);       // Top-right: Green
-  fillRect(0, halfH, halfW, halfH, quadColors[2]);       // Bottom-left: Blue
-  fillRect(halfW, halfH, halfW, halfH, quadColors[3]);   // Bottom-right: Yellow
-  
-  // Draw center cross (white)
-  drawHLine(0, halfH - 1, SCREEN_W, COLOR_WHITE);
-  drawHLine(0, halfH, SCREEN_W, COLOR_WHITE);
-  drawVLine(halfW - 1, 0, SCREEN_H, COLOR_WHITE);
-  drawVLine(halfW, 0, SCREEN_H, COLOR_WHITE);
-  
-  // Draw corner markers
-  int markerSize = 20;
-  // Top-left corner
-  drawHLine(0, 0, markerSize, COLOR_WHITE);
-  drawVLine(0, 0, markerSize, COLOR_WHITE);
-  // Top-right corner
-  drawHLine(SCREEN_W - markerSize, 0, markerSize, COLOR_WHITE);
-  drawVLine(SCREEN_W - 1, 0, markerSize, COLOR_WHITE);
-  // Bottom-left corner
-  drawHLine(0, SCREEN_H - 1, markerSize, COLOR_WHITE);
-  drawVLine(0, SCREEN_H - markerSize, markerSize, COLOR_WHITE);
-  // Bottom-right corner
-  drawHLine(SCREEN_W - markerSize, SCREEN_H - 1, markerSize, COLOR_WHITE);
-  drawVLine(SCREEN_W - 1, SCREEN_H - markerSize, markerSize, COLOR_WHITE);
-}
-
-// Map raw touch to screen coordinates
-int mapTouchToScreen(uint16_t raw, uint16_t rawMin, uint16_t rawMax, int screenMax) {
-  if (raw < rawMin) raw = rawMin;
-  if (raw > rawMax) raw = rawMax;
-  return map(raw, rawMin, rawMax, 0, screenMax - 1);
-}
-
-// Draw a touch point marker
-void drawTouchMarker(int x, int y, uint16_t color) {
-  // Draw a small cross
-  int size = 6;
-  fillRect(x - size, y, size * 2 + 1, 1, color);
-  fillRect(x, y - size, 1, size * 2 + 1, color);
-  // Draw center dot
-  fillRect(x - 1, y - 1, 3, 3, COLOR_WHITE);
-}
-
-// Clear previous touch marker area
-void clearTouchMarker(int x, int y) {
-  int halfW = SCREEN_W / 2;
-  int halfH = SCREEN_H / 2;
-  
-  // Determine which quadrant to redraw
-  int quadrant;
-  if (x < halfW && y < halfH) quadrant = 0;
-  else if (x >= halfW && y < halfH) quadrant = 1;
-  else if (x < halfW && y >= halfH) quadrant = 2;
-  else quadrant = 3;
-  
-  // Redraw a small area with quadrant color
-  int size = 8;
-  int x1 = max(0, x - size);
-  int y1 = max(0, y - size);
-  int x2 = min(SCREEN_W - 1, x + size);
-  int y2 = min(SCREEN_H - 1, y + size);
-  fillRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1, quadColors[quadrant]);
-}
 
 void diagnostic_setup() {
   Serial.begin(115200);
@@ -771,16 +618,17 @@ void diagnostic_setup() {
   Serial.println("\n\n");
   Serial.println("####################################################");
   Serial.println("#                                                  #");
-  Serial.println("#   ESP32 CHESS CLOCK " FIRMWARE_VERSION "      #");
+  Serial.println("#   ESP32 CHESS CLOCK " FIRMWARE_VERSION "       #");
   Serial.println("#   Build: " BUILD_ID "                            #");
   Serial.println("#                                                  #");
-  Serial.println("#   >>> VISUAL QUADRANT TOUCH TEST <<<             #");
+  Serial.println("#   >>> BACKLIGHT PIN SCANNER <<<                  #");
   Serial.println("#                                                  #");
   Serial.println("####################################################");
   Serial.println("");
   Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
   
   // LED init
+  Serial.println("\n[1] LED init...");
   pinMode(RGB_LED_R, OUTPUT);
   pinMode(RGB_LED_G, OUTPUT);
   pinMode(RGB_LED_B, OUTPUT);
@@ -788,121 +636,104 @@ void diagnostic_setup() {
   digitalWrite(RGB_LED_G, HIGH);
   digitalWrite(RGB_LED_B, HIGH);
   
-  // Display SPI init
-  Serial.println("\n[1] Display init...");
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);
+  // CRITICAL: Drive touch CS HIGH to prevent bus contention!
+  Serial.println("\n[2] Touch CS pin...");
+  pinMode(TOUCH_CS_PIN, OUTPUT);
+  digitalWrite(TOUCH_CS_PIN, HIGH);
+  Serial.println("    Touch CS=33 driven HIGH (deselected)");
+  
+  // Setup all candidate backlight pins as OUTPUT, all LOW (off)
+  Serial.println("\n[3] Setting up candidate backlight pins...");
+  for (int i = 0; i < numBlPins; i++) {
+    pinMode(blPins[i], OUTPUT);
+    digitalWrite(blPins[i], LOW);
+    Serial.printf("    Pin %d = OUTPUT, LOW\n", blPins[i]);
+  }
+  
+  // Display pins
+  Serial.println("\n[4] Display pin setup...");
   pinMode(TFT_CS_PIN, OUTPUT);
   pinMode(TFT_DC_PIN, OUTPUT);
   digitalWrite(TFT_CS_PIN, HIGH);
   digitalWrite(TFT_DC_PIN, HIGH);
+  Serial.println("    CS=15 (HIGH), DC=27 (HIGH)");
   
-  // Touch CS init (shares SPI bus)
-  pinMode(TOUCH_CS_PIN, OUTPUT);
-  digitalWrite(TOUCH_CS_PIN, HIGH);
-  
-  // Initialize shared SPI bus
-  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, -1);  // -1 = no hardware CS
+  // SPI init
+  Serial.println("\n[5] SPI init...");
+  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, -1);
   hspi.setFrequency(40000000);
   hspi.setDataMode(SPI_MODE0);
+  Serial.println("    HSPI started: CLK=14, MOSI=13, MISO=12 @ 40MHz");
   
+  // Display init
+  Serial.println("\n[6] Display init...");
   initDisplay();
-  Serial.println("    Display OK");
+  Serial.println("    Init sequence complete");
   
-  // Draw quadrant test pattern
-  Serial.println("\n[2] Drawing quadrant grid...");
-  drawQuadrantGrid();
-  Serial.println("    Grid OK");
-  
-  Serial.println("\n[3] CONFIRMED PIN CONFIGURATION:");
-  Serial.println("    Display: CS=15, DC=27, BL=21");
-  Serial.println("    Touch:   CS=33 (shared SPI: CLK=14, MOSI=13, MISO=12)");
-  
-  Serial.println("\n[4] Touch calibration bounds:");
-  Serial.printf("    X: %d - %d (raw)\n", TOUCH_MIN_X, TOUCH_MAX_X);
-  Serial.printf("    Y: %d - %d (raw)\n", TOUCH_MIN_Y, TOUCH_MAX_Y);
+  // Fill screen with BLUE
+  Serial.println("\n[7] Filling screen with BLUE...");
+  fillScreen(COLOR_BLUE);
+  Serial.println("    Fill complete");
   
   Serial.println("\n================================================");
-  Serial.println("QUADRANT TEST:");
-  Serial.println("  RED (top-left)     = touch should show ~low X, ~low Y");
-  Serial.println("  GREEN (top-right)  = touch should show ~high X, ~low Y");
-  Serial.println("  BLUE (bottom-left) = touch should show ~low X, ~high Y");
-  Serial.println("  YELLOW (bot-right) = touch should show ~high X, ~high Y");
-  Serial.println("");
-  Serial.println("Touch each quadrant and watch the marker + serial output!");
+  Serial.println("BACKLIGHT PIN SCAN");
+  Serial.println("Watch the display - when it lights up, note the pin!");
+  Serial.println("Testing pins: 21, 2, 5, 22, 25, 26, 32, 0, 19, 23");
+  Serial.println("Each pin tested for 3 seconds");
   Serial.println("================================================\n");
   
   // Green LED = ready
   digitalWrite(RGB_LED_G, LOW);
 }
 
-int lastScreenX = -1, lastScreenY = -1;
-
 void diagnostic_loop() {
-  static uint32_t lastPrint = 0;
+  static uint32_t lastChange = 0;
+  static int lastPin = -1;
   
-  uint16_t rawX, rawY, rawZ;
-  readTouch(rawX, rawY, rawZ);
+  // Different color for each pin so user can identify visually
+  const uint16_t pinColors[] = {
+    COLOR_RED,      // Pin 21 = RED
+    COLOR_GREEN,    // Pin 2  = GREEN
+    COLOR_BLUE,     // Pin 5  = BLUE
+    COLOR_YELLOW,   // Pin 22 = YELLOW
+    COLOR_CYAN,     // Pin 25 = CYAN
+    COLOR_MAGENTA,  // Pin 26 = MAGENTA
+    COLOR_WHITE,    // Pin 32 = WHITE
+    0xFD20,         // Pin 0  = ORANGE
+    0x7BEF,         // Pin 19 = GRAY
+    0xF81F          // Pin 23 = PINK
+  };
+  const char* pinColorNames[] = {
+    "RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA", "WHITE", "ORANGE", "GRAY", "PINK"
+  };
   
-  // Detect touch (Z > threshold)
-  bool touching = (rawZ > 50);
-  
-  if (touching) {
-    // Map raw to screen coordinates
-    int screenX = mapTouchToScreen(rawX, TOUCH_MIN_X, TOUCH_MAX_X, SCREEN_W);
-    int screenY = mapTouchToScreen(rawY, TOUCH_MIN_Y, TOUCH_MAX_Y, SCREEN_H);
+  if (millis() - lastChange > 3000) {
+    lastChange = millis();
     
-    // Determine quadrant (0=TL, 1=TR, 2=BL, 3=BR)
-    int quadrant = (screenX >= SCREEN_W/2 ? 1 : 0) + (screenY >= SCREEN_H/2 ? 2 : 0);
-    const char* quadNames[] = {"TOP-LEFT (Red)", "TOP-RIGHT (Green)", "BOTTOM-LEFT (Blue)", "BOTTOM-RIGHT (Yellow)"};
-    
-    // Clear previous marker
-    if (lastScreenX >= 0 && lastScreenY >= 0) {
-      clearTouchMarker(lastScreenX, lastScreenY);
+    // Turn off previous pin
+    if (lastPin >= 0) {
+      digitalWrite(blPins[lastPin], LOW);
     }
     
-    // Draw new marker
-    drawTouchMarker(screenX, screenY, COLOR_WHITE);
-    lastScreenX = screenX;
-    lastScreenY = screenY;
+    // Fill screen with this pin's color BEFORE turning on backlight
+    fillScreen(pinColors[currentBlPin]);
     
-    // LED feedback based on quadrant
-    digitalWrite(RGB_LED_R, quadrant == 0 ? LOW : HIGH);
-    digitalWrite(RGB_LED_G, (quadrant == 1 || quadrant == 3) ? LOW : HIGH);
-    digitalWrite(RGB_LED_B, quadrant == 2 ? LOW : HIGH);
+    // Report current test
+    Serial.printf("\n>>> Testing BACKLIGHT on pin %d = %s <<<\n", blPins[currentBlPin], pinColorNames[currentBlPin]);
+    Serial.println("    If display shows this color NOW, this is the backlight pin!");
     
-    // Serial output
-    if (millis() - lastPrint > 100) {
-      lastPrint = millis();
-      Serial.printf("TOUCH: raw(%4d,%4d,z=%4d) -> screen(%3d,%3d) = %s\n",
-                    rawX, rawY, rawZ, screenX, screenY, quadNames[quadrant]);
-    }
-  } else {
-    // Not touching - clear marker area if we had one
-    if (lastScreenX >= 0 && lastScreenY >= 0) {
-      clearTouchMarker(lastScreenX, lastScreenY);
-      lastScreenX = -1;
-      lastScreenY = -1;
-      
-      // Redraw center cross (might have been erased)
-      drawHLine(0, SCREEN_H/2 - 1, SCREEN_W, COLOR_WHITE);
-      drawHLine(0, SCREEN_H/2, SCREEN_W, COLOR_WHITE);
-      drawVLine(SCREEN_W/2 - 1, 0, SCREEN_H, COLOR_WHITE);
-      drawVLine(SCREEN_W/2, 0, SCREEN_H, COLOR_WHITE);
-    }
+    // Turn on current pin
+    digitalWrite(blPins[currentBlPin], HIGH);
     
-    // LEDs off
-    digitalWrite(RGB_LED_R, HIGH);
-    digitalWrite(RGB_LED_G, HIGH);  
-    digitalWrite(RGB_LED_B, HIGH);
+    // LED feedback
+    digitalWrite(RGB_LED_R, (currentBlPin % 2) ? HIGH : LOW);
+    digitalWrite(RGB_LED_B, (currentBlPin % 2) ? LOW : HIGH);
     
-    if (millis() - lastPrint > 500) {
-      lastPrint = millis();
-      Serial.printf("       raw(%4d,%4d,z=%4d) - not touching\n", rawX, rawY, rawZ);
-    }
+    lastPin = currentBlPin;
+    currentBlPin = (currentBlPin + 1) % numBlPins;
   }
   
-  delay(20);
+  delay(50);
 }
 
 void setup() {
