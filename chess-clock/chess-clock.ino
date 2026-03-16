@@ -516,8 +516,8 @@ SPIClass hspi(HSPI);
 #define TOUCH_MIN_Y 370
 #define TOUCH_MAX_Y 3700
 
-#define FIRMWARE_VERSION "v7.5-quadrant"
-#define BUILD_ID "2026-03-16-D"
+#define FIRMWARE_VERSION "v7.6-quadrant"
+#define BUILD_ID "2026-03-16-E"
 
 // === DISPLAY FUNCTIONS ===
 void writeCmd(uint8_t cmd) {
@@ -621,83 +621,62 @@ void drawVLine(int x, int y, int h, uint16_t color) {
   fillRect(x, y, 1, h, color);
 }
 
-// === TOUCH FUNCTIONS (BIT-BANG to avoid SPI conflicts with display) ===
-// Touch shares CLK/MOSI/MISO pins with display, but we bit-bang to avoid
-// interfering with the hardware SPI state used by the display.
+// === TOUCH FUNCTIONS (HARDWARE SPI - shared bus with display) ===
+// Key insight: Both display and touch use the same SPI bus (HSPI on pins 12/13/14)
+// We just need to manage CS pins properly and adjust speed.
+// DO NOT call hspi.end()/begin() - that corrupts display!
 
-uint16_t readTouchChannelBitBang(uint8_t cmd) {
-  // Ensure display CS is HIGH
+uint16_t readTouchChannelHW(uint8_t cmd) {
+  // CRITICAL: Ensure display is deselected
   digitalWrite(TFT_CS_PIN, HIGH);
+  digitalWrite(TFT_DC_PIN, HIGH);  // Keep DC high (data mode) during touch
+  
+  // Slow down for touch controller
+  hspi.setFrequency(2500000);  // 2.5 MHz for XPT2046
   
   // Select touch
   digitalWrite(TOUCH_CS_PIN, LOW);
-  delayMicroseconds(10);
+  delayMicroseconds(5);
   
-  // Send command via bit-banging (8 bits, MSB first)
-  for (int i = 7; i >= 0; i--) {
-    digitalWrite(HSPI_MOSI, (cmd >> i) & 1);
-    digitalWrite(HSPI_SCLK, LOW);
-    delayMicroseconds(2);
-    digitalWrite(HSPI_SCLK, HIGH);
-    delayMicroseconds(2);
-  }
-  
-  // One busy cycle
-  digitalWrite(HSPI_SCLK, LOW);
-  delayMicroseconds(2);
-  digitalWrite(HSPI_SCLK, HIGH);
-  delayMicroseconds(2);
-  
-  // Read 12-bit response
-  uint16_t result = 0;
-  for (int i = 11; i >= 0; i--) {
-    digitalWrite(HSPI_SCLK, LOW);
-    delayMicroseconds(2);
-    if (digitalRead(HSPI_MISO)) {
-      result |= (1 << i);
-    }
-    digitalWrite(HSPI_SCLK, HIGH);
-    delayMicroseconds(2);
-  }
+  // Send command and read response
+  hspi.transfer(cmd);
+  delayMicroseconds(1);  // Small delay for conversion
+  uint8_t hi = hspi.transfer(0);
+  uint8_t lo = hspi.transfer(0);
   
   // Deselect touch
   digitalWrite(TOUCH_CS_PIN, HIGH);
   
-  return result;
+  // Restore fast speed for display
+  hspi.setFrequency(40000000);
+  
+  return ((hi << 8) | lo) >> 3;  // 12-bit result
 }
 
 void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
-  // Save SPI state - we're going to bit-bang
-  // First ensure display is deselected
+  // Ensure display is fully deselected before touching SPI
   digitalWrite(TFT_CS_PIN, HIGH);
   digitalWrite(TFT_DC_PIN, HIGH);
-  
-  // Set pins for bit-bang mode (they're already configured but re-confirm)
-  pinMode(HSPI_SCLK, OUTPUT);
-  pinMode(HSPI_MOSI, OUTPUT);
-  pinMode(HSPI_MISO, INPUT);
-  digitalWrite(HSPI_SCLK, LOW);
+  delayMicroseconds(5);  // Let lines settle
   
   // Read raw values with multiple samples for stability
   uint32_t sumX = 0, sumY = 0, sumZ = 0;
   const int samples = 4;
   
   for (int i = 0; i < samples; i++) {
-    sumX += readTouchChannelBitBang(XPT_X);
-    sumY += readTouchChannelBitBang(XPT_Y);
-    sumZ += readTouchChannelBitBang(XPT_Z1);
+    sumX += readTouchChannelHW(XPT_X);
+    sumY += readTouchChannelHW(XPT_Y);
+    sumZ += readTouchChannelHW(XPT_Z1);
+    delayMicroseconds(50);  // Small gap between reads
   }
   
   x = sumX / samples;
   y = sumY / samples;
   z = sumZ / samples;
   
-  // IMPORTANT: Re-initialize hardware SPI for display
-  // The bit-banging left the pins in GPIO mode, need to restore SPI
-  hspi.end();
-  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, -1);
-  hspi.setFrequency(40000000);
-  hspi.setDataMode(SPI_MODE0);
+  // Ensure touch is deselected before any display operations
+  digitalWrite(TOUCH_CS_PIN, HIGH);
+  delayMicroseconds(5);
 }
 
 // === QUADRANT COLORS ===
