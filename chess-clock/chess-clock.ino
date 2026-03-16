@@ -512,7 +512,7 @@ const int NUM_MISO = sizeof(TOUCH_MISO_PINS) / sizeof(TOUCH_MISO_PINS[0]);
 const int NUM_CS = sizeof(TOUCH_CS_PINS) / sizeof(TOUCH_CS_PINS[0]);
 
 #define FIRMWARE_VERSION "v7.2-touchscan"
-#define BUILD_ID "2026-03-12-C"
+#define BUILD_ID "2026-03-16-A"
 
 void writeCmd(uint8_t cmd) {
   digitalWrite(TFT_DC_PIN, LOW);
@@ -736,6 +736,14 @@ void diagnostic_setup() {
           if (clk == mosi || clk == miso || clk == cs) continue;
           if (mosi == miso || mosi == cs) continue;
           if (miso == cs) continue;
+          
+          // CRITICAL: Set pin modes BEFORE using digitalWrite/digitalRead
+          pinMode(cs, OUTPUT);
+          pinMode(clk, OUTPUT);
+          pinMode(mosi, OUTPUT);
+          pinMode(miso, INPUT);
+          digitalWrite(cs, HIGH);  // Deselect first
+          digitalWrite(clk, LOW);
           
           // Read X, Y values
           uint16_t x = readTouchRaw(clk, mosi, miso, cs, XPT_X);
