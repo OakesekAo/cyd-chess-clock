@@ -508,15 +508,16 @@ SPIClass hspi(HSPI);
 #define XPT_Z1 0xB0  // Z1 pressure
 #define XPT_Z2 0xC0  // Z2 pressure
 
-// Touch calibration (raw values from your log)
-// X: ~200 to ~1800, Y: ~260 to ~1800
-#define TOUCH_MIN_X 200
-#define TOUCH_MAX_X 1800
-#define TOUCH_MIN_Y 200
-#define TOUCH_MAX_Y 1800
+// Touch calibration (from v7.3 actual data)
+// Raw X: ~650 (left) to ~3400 (right)
+// Raw Y: ~770 (top) to ~3650 (bottom)
+#define TOUCH_MIN_X 650
+#define TOUCH_MAX_X 3400
+#define TOUCH_MIN_Y 770
+#define TOUCH_MAX_Y 3650
 
-#define FIRMWARE_VERSION "v7.3-quadrant"
-#define BUILD_ID "2026-03-16-B"
+#define FIRMWARE_VERSION "v7.4-quadrant"
+#define BUILD_ID "2026-03-16-C"
 
 // === DISPLAY FUNCTIONS ===
 void writeCmd(uint8_t cmd) {
@@ -543,6 +544,10 @@ void writeDataBuf(const uint8_t* data, size_t len) {
 }
 
 void initDisplay() {
+  // Ensure touch CS is HIGH during display init
+  digitalWrite(TOUCH_CS_PIN, HIGH);
+  hspi.setFrequency(40000000);
+  
   writeCmd(0x01); delay(150);
   writeCmd(0xCB); uint8_t d1[] = {0x39, 0x2C, 0x00, 0x34, 0x02}; writeDataBuf(d1, 5);
   writeCmd(0xCF); uint8_t d2[] = {0x00, 0xC1, 0x30}; writeDataBuf(d2, 3);
@@ -567,6 +572,10 @@ void initDisplay() {
 }
 
 void setAddrWindow(int x, int y, int w, int h) {
+  // Ensure touch is deselected before display operations
+  digitalWrite(TOUCH_CS_PIN, HIGH);
+  hspi.setFrequency(40000000);
+  
   writeCmd(0x2A);
   uint8_t col[] = {(uint8_t)(x >> 8), (uint8_t)x, (uint8_t)((x+w-1) >> 8), (uint8_t)(x+w-1)};
   writeDataBuf(col, 4);
@@ -612,6 +621,21 @@ void drawVLine(int x, int y, int h, uint16_t color) {
   fillRect(x, y, 1, h, color);
 }
 
+// === SPI BUS MANAGEMENT ===
+// Display and Touch share the same SPI bus - must manage CS pins carefully!
+
+void prepareForDisplay() {
+  // Ensure touch is deselected, set display speed
+  digitalWrite(TOUCH_CS_PIN, HIGH);
+  hspi.setFrequency(40000000);
+}
+
+void prepareForTouch() {
+  // Ensure display is deselected, set touch speed
+  digitalWrite(TFT_CS_PIN, HIGH);
+  hspi.setFrequency(1000000);
+}
+
 // === TOUCH FUNCTIONS (using hardware SPI - shared bus) ===
 uint16_t readTouchChannel(uint8_t cmd) {
   digitalWrite(TOUCH_CS_PIN, LOW);
@@ -627,8 +651,8 @@ uint16_t readTouchChannel(uint8_t cmd) {
 }
 
 void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
-  // Lower SPI speed for touch
-  hspi.setFrequency(1000000);
+  // Make sure display CS is HIGH before touching SPI
+  prepareForTouch();
   
   // Read multiple samples and average for stability
   uint32_t sumX = 0, sumY = 0, sumZ = 0;
@@ -644,8 +668,8 @@ void readTouch(uint16_t &x, uint16_t &y, uint16_t &z) {
   y = sumY / samples;
   z = sumZ / samples;
   
-  // Restore display SPI speed
-  hspi.setFrequency(40000000);
+  // Restore for display operations
+  prepareForDisplay();
 }
 
 // === QUADRANT COLORS ===
