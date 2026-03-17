@@ -18,20 +18,14 @@
 #define CC_DIAGNOSTIC_MODE
 
 #include <Arduino.h>
-
-// Only include heavy libraries when NOT in diagnostic mode
-#ifndef CC_DIAGNOSTIC_MODE
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <Preferences.h>
-#endif
-
 #include <XPT2046_Touchscreen.h>
+#include <Preferences.h>
 
 // Uncomment to enable touch debugging
 // #define CC_DEBUG_TOUCH
 
-#ifndef CC_DIAGNOSTIC_MODE
 #include "config/screen_select.h"
 
 // Touch controller pins (XPT2046 on separate SPI bus)
@@ -469,182 +463,265 @@ void create_ui() {
   lv_obj_center(lbl_reset);
 }
 
-#endif  // !CC_DIAGNOSTIC_MODE (end of chess clock code)
-
 // ============================================================================
-// DIAGNOSTIC MODE v7.7 - DISPLAY ONLY TEST (NO TOUCH)
+// DIAGNOSTIC MODE v6 - PIN SCANNER - Cycle through pin configs
 // ============================================================================
 
 #ifdef CC_DIAGNOSTIC_MODE
 
 #include <SPI.h>
 
-// RGB LED pins - your board variant has G/B swapped
+// RGB LED pins - CYD variant with swapped G/B
 #define RGB_LED_R 4
-#define RGB_LED_G 17
-#define RGB_LED_B 16
+#define RGB_LED_G 17  // SWAPPED for your board variant
+#define RGB_LED_B 16  // SWAPPED for your board variant
 
-// DISPLAY PINS - Testing different configurations
+// HSPI pins (confirmed working - SPI responded)
 #define HSPI_MISO 12
 #define HSPI_MOSI 13
 #define HSPI_SCLK 14
 #define TFT_CS_PIN 15
-#define TFT_DC_PIN 27
-#define TFT_BL_PIN 21
 
-// Screen dimensions (240x320 portrait)
-#define SCREEN_W 240
-#define SCREEN_H 320
+// Pins to scan
+const int DC_PINS[] = {2, 27, 0, 4, 5, 22};  // Common DC pin options
+const int BL_PINS[] = {21, 22, 27, 5, 4, 17, 16};  // Common backlight pins
+const int NUM_DC = sizeof(DC_PINS) / sizeof(DC_PINS[0]);
+const int NUM_BL = sizeof(BL_PINS) / sizeof(BL_PINS[0]);
+
+int currentDC = 2;  // Will be updated during scan
+int currentBL = 21;
 
 SPIClass hspi(HSPI);
 
-#define FIRMWARE_VERSION "v7.9-debug"
-#define BUILD_ID "2026-03-16-H"
+void writeCommandPin(uint8_t cmd, int dcPin) {
+  digitalWrite(dcPin, LOW);
+  digitalWrite(TFT_CS_PIN, LOW);
+  hspi.transfer(cmd);
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
 
-// Minimal test - just display, verbose debug
-void diagnostic_setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n\n");
-  Serial.println("####################################################");
-  Serial.println("#   v7.9-debug - MINIMAL DISPLAY TEST              #");
-  Serial.println("####################################################\n");
-  
-  // Step 1: Backlight ON first (pin 21)
-  Serial.println("[1] Backlight ON (pin 21)...");
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);
-  Serial.println("    BL=21 set HIGH");
-  delay(100);
-  
-  // Step 2: Touch CS HIGH (deselect)
-  Serial.println("\n[2] Touch CS HIGH (pin 33)...");
-  pinMode(33, OUTPUT);
-  digitalWrite(33, HIGH);
-  Serial.println("    Touch CS=33 set HIGH (deselected)");
-  
-  // Step 3: Display control pins
-  Serial.println("\n[3] Display control pins...");
-  pinMode(TFT_CS_PIN, OUTPUT);
-  pinMode(TFT_DC_PIN, OUTPUT);
-  
-  // Try: CS HIGH (deselect), DC HIGH
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  Serial.printf("    CS=%d (pin 15), DC=%d (pin 27)\n", 
-                digitalRead(TFT_CS_PIN), digitalRead(TFT_DC_PIN));
-  delay(100);
-  
-  // Step 4: SPI init
-  Serial.println("\n[4] SPI init...");
-  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, -1);
-  hspi.setFrequency(10000000);  // Try slower: 10 MHz
-  hspi.setDataMode(SPI_MODE0);
-  Serial.println("    HSPI: CLK=14, MOSI=13, MISO=12 @ 10MHz");
-  delay(100);
-  
-  // Step 5: Hardware reset via power cycle init commands
-  Serial.println("\n[5] Display RESET sequence...");
-  
-  // Software reset
-  Serial.println("    Sending 0x01 (SW Reset)...");
-  digitalWrite(TFT_DC_PIN, LOW);   // Command mode
-  digitalWrite(TFT_CS_PIN, LOW);   // Select display
-  hspi.transfer(0x01);
-  digitalWrite(TFT_CS_PIN, HIGH);  // Deselect
-  Serial.println("    Waiting 150ms...");
-  delay(150);
-  
-  // Sleep out
-  Serial.println("    Sending 0x11 (Sleep Out)...");
-  digitalWrite(TFT_DC_PIN, LOW);
+void writeDataPin(uint8_t data, int dcPin) {
+  digitalWrite(dcPin, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x11);
+  hspi.transfer(data);
   digitalWrite(TFT_CS_PIN, HIGH);
-  Serial.println("    Waiting 120ms...");
-  delay(120);
+}
+
+void writeDataMultiPin(const uint8_t* data, size_t len, int dcPin) {
+  digitalWrite(dcPin, HIGH);
+  digitalWrite(TFT_CS_PIN, LOW);
+  for (size_t i = 0; i < len; i++) {
+    hspi.transfer(data[i]);
+  }
+  digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+void fillScreenPin(uint16_t color, int dcPin) {
+  // Column address set
+  writeCommandPin(0x2A, dcPin);
+  uint8_t colData[] = {0x00, 0x00, 0x00, 0xEF};
+  writeDataMultiPin(colData, 4, dcPin);
   
-  // Display ON
-  Serial.println("    Sending 0x29 (Display On)...");
-  digitalWrite(TFT_DC_PIN, LOW);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x29);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  delay(50);
-  
-  // Pixel format 16-bit
-  Serial.println("    Sending 0x3A (Pixel Format = 16-bit)...");
-  digitalWrite(TFT_DC_PIN, LOW);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x3A);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);  // Data mode
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x55);  // 16-bit color
-  digitalWrite(TFT_CS_PIN, HIGH);
-  
-  Serial.println("\n[6] Filling screen with BLUE (0x001F)...");
-  
-  // Set column address 0-239
-  digitalWrite(TFT_DC_PIN, LOW);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x2A);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x00); hspi.transfer(0x00);  // Start col = 0
-  hspi.transfer(0x00); hspi.transfer(0xEF);  // End col = 239
-  digitalWrite(TFT_CS_PIN, HIGH);
-  
-  // Set row address 0-319
-  digitalWrite(TFT_DC_PIN, LOW);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x2B);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x00); hspi.transfer(0x00);  // Start row = 0
-  hspi.transfer(0x01); hspi.transfer(0x3F);  // End row = 319
-  digitalWrite(TFT_CS_PIN, HIGH);
+  // Row address set  
+  writeCommandPin(0x2B, dcPin);
+  uint8_t rowData[] = {0x00, 0x00, 0x01, 0x3F};
+  writeDataMultiPin(rowData, 4, dcPin);
   
   // Memory write
-  Serial.println("    Sending pixels...");
-  digitalWrite(TFT_DC_PIN, LOW);
+  writeCommandPin(0x2C, dcPin);
+  digitalWrite(dcPin, HIGH);
   digitalWrite(TFT_CS_PIN, LOW);
-  hspi.transfer(0x2C);
-  digitalWrite(TFT_CS_PIN, HIGH);
-  digitalWrite(TFT_DC_PIN, HIGH);
-  digitalWrite(TFT_CS_PIN, LOW);
-  
-  // Fill with blue (0x001F) - need to swap bytes for SPI
-  uint16_t blue = 0x001F;
-  uint16_t swapped = (blue >> 8) | (blue << 8);
+  uint16_t swapped = (color >> 8) | (color << 8);
   for (uint32_t i = 0; i < 240UL * 320UL; i++) {
     hspi.transfer16(swapped);
   }
   digitalWrite(TFT_CS_PIN, HIGH);
+}
+
+void initDisplayPin(int dcPin) {
+  // Software reset
+  writeCommandPin(0x01, dcPin);
+  delay(150);
   
-  Serial.println("    DONE!");
-  Serial.println("\n================================================");
-  Serial.println("If display is BLUE - display works!");
-  Serial.println("If display is WHITE - SPI not reaching display");
-  Serial.println("If display is BLACK - backlight issue");
-  Serial.println("================================================\n");
+  // Power control A
+  writeCommandPin(0xCB, dcPin);
+  uint8_t pca[] = {0x39, 0x2C, 0x00, 0x34, 0x02};
+  writeDataMultiPin(pca, 5, dcPin);
   
-  // LED = green to show completion
+  // Power control B
+  writeCommandPin(0xCF, dcPin);
+  uint8_t pcb[] = {0x00, 0xC1, 0x30};
+  writeDataMultiPin(pcb, 3, dcPin);
+  
+  // Power control 1
+  writeCommandPin(0xC0, dcPin);
+  writeDataPin(0x23, dcPin);
+  
+  // Power control 2
+  writeCommandPin(0xC1, dcPin);
+  writeDataPin(0x10, dcPin);
+  
+  // VCOM control 1
+  writeCommandPin(0xC5, dcPin);
+  uint8_t vcom1[] = {0x3E, 0x28};
+  writeDataMultiPin(vcom1, 2, dcPin);
+  
+  // Memory Access Control
+  writeCommandPin(0x36, dcPin);
+  writeDataPin(0x48, dcPin);
+  
+  // Pixel Format
+  writeCommandPin(0x3A, dcPin);
+  writeDataPin(0x55, dcPin);
+  
+  // Frame rate
+  writeCommandPin(0xB1, dcPin);
+  uint8_t frc[] = {0x00, 0x18};
+  writeDataMultiPin(frc, 2, dcPin);
+  
+  // Sleep out
+  writeCommandPin(0x11, dcPin);
+  delay(150);
+  
+  // Display on
+  writeCommandPin(0x29, dcPin);
+  delay(50);
+}
+
+// Diagnostic v6 - Pin Scanner
+void diagnostic_setup() {
+  Serial.begin(115200);
+  delay(500);
+  
+  Serial.println("\n\n========================================");
+  Serial.println("    ESP32 CHESS CLOCK DIAGNOSTIC v6");
+  Serial.println("           PIN SCANNER MODE");
+  Serial.println("========================================");
+  Serial.printf("Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
+  Serial.println("========================================\n");
+  
+  Serial.println("CONFIRMED WORKING (SPI responded):");
+  Serial.printf("  SCLK=%d  MOSI=%d  MISO=%d  CS=%d\n", HSPI_SCLK, HSPI_MOSI, HSPI_MISO, TFT_CS_PIN);
+  Serial.println("\nWILL SCAN:");
+  Serial.printf("  DC pins: ");
+  for (int i = 0; i < NUM_DC; i++) Serial.printf("%d ", DC_PINS[i]);
+  Serial.printf("\n  BL pins: ");
+  for (int i = 0; i < NUM_BL; i++) Serial.printf("%d ", BL_PINS[i]);
+  Serial.println("\n");
+  
+  // RGB LED init
   pinMode(RGB_LED_R, OUTPUT);
-  pinMode(RGB_LED_G, OUTPUT);
+  pinMode(RGB_LED_G, OUTPUT);  
   pinMode(RGB_LED_B, OUTPUT);
   digitalWrite(RGB_LED_R, HIGH);
-  digitalWrite(RGB_LED_G, LOW);  // Green ON
+  digitalWrite(RGB_LED_G, HIGH);
   digitalWrite(RGB_LED_B, HIGH);
+  
+  // SPI init
+  pinMode(TFT_CS_PIN, OUTPUT);
+  digitalWrite(TFT_CS_PIN, HIGH);
+  hspi.begin(HSPI_SCLK, HSPI_MISO, HSPI_MOSI, TFT_CS_PIN);
+  hspi.setFrequency(27000000);
+  hspi.setDataMode(SPI_MODE0);
+  
+  // Initialize all potential DC pins as outputs
+  for (int i = 0; i < NUM_DC; i++) {
+    pinMode(DC_PINS[i], OUTPUT);
+    digitalWrite(DC_PINS[i], HIGH);
+  }
+  
+  // Initialize all potential BL pins as outputs  
+  for (int i = 0; i < NUM_BL; i++) {
+    pinMode(BL_PINS[i], OUTPUT);
+    digitalWrite(BL_PINS[i], LOW);  // Start all OFF
+  }
+  
+  Serial.println("========================================");
+  Serial.println("STARTING PIN SCAN - Watch for display!");
+  Serial.println("========================================\n");
+  
+  int testNum = 0;
+  
+  // Scan all DC + BL combinations
+  for (int dc = 0; dc < NUM_DC; dc++) {
+    for (int bl = 0; bl < NUM_BL; bl++) {
+      testNum++;
+      currentDC = DC_PINS[dc];
+      currentBL = BL_PINS[bl];
+      
+      // Turn off all backlights first
+      for (int i = 0; i < NUM_BL; i++) {
+        digitalWrite(BL_PINS[i], LOW);
+      }
+      
+      Serial.println("----------------------------------------");
+      Serial.printf("TEST #%d: DC=%d, BL=%d\n", testNum, currentDC, currentBL);
+      Serial.println("----------------------------------------");
+      
+      // Flash LED to show test number
+      digitalWrite(RGB_LED_R, (testNum % 3 == 0) ? LOW : HIGH);
+      digitalWrite(RGB_LED_G, (testNum % 3 == 1) ? LOW : HIGH);
+      digitalWrite(RGB_LED_B, (testNum % 3 == 2) ? LOW : HIGH);
+      
+      // Init display with this DC pin
+      Serial.printf("  Initializing with DC=%d...\n", currentDC);
+      initDisplayPin(currentDC);
+      
+      // Try backlight HIGH
+      Serial.printf("  BL=%d HIGH...\n", currentBL);
+      digitalWrite(currentBL, HIGH);
+      fillScreenPin(0xF800, currentDC);  // RED
+      delay(1500);
+      
+      // Try backlight LOW (inverted)
+      Serial.printf("  BL=%d LOW...\n", currentBL);
+      digitalWrite(currentBL, LOW);
+      fillScreenPin(0x07E0, currentDC);  // GREEN
+      delay(1500);
+      
+      Serial.println();
+    }
+  }
+  
+  // Turn all backlights ON at the end
+  for (int i = 0; i < NUM_BL; i++) {
+    digitalWrite(BL_PINS[i], HIGH);
+  }
+  
+  Serial.println("\n========================================");
+  Serial.println("PIN SCAN COMPLETE!");
+  Serial.println("");
+  Serial.println("If you saw colors on the display,");
+  Serial.println("note which TEST # worked and tell me!");
+  Serial.println("");
+  Serial.printf("Scanned %d combinations\n", testNum);
+  Serial.println("========================================\n");
+  Serial.flush();
 }
 
 void diagnostic_loop() {
-  // Do nothing - just hold the blue screen
-  delay(1000);
-  Serial.println("Waiting... display should show BLUE");
+  static uint32_t lastBlink = 0;
+  static int ledState = 0;
+  
+  // Blink RGB LED in sequence to show firmware is running
+  if (millis() - lastBlink > 1000) {
+    lastBlink = millis();
+    
+    // Turn all off
+    digitalWrite(RGB_LED_R, HIGH);
+    digitalWrite(RGB_LED_G, HIGH);
+    digitalWrite(RGB_LED_B, HIGH);
+    
+    // Turn one on
+    switch (ledState) {
+      case 0: digitalWrite(RGB_LED_R, LOW); Serial.println("LED: RED"); break;
+      case 1: digitalWrite(RGB_LED_G, LOW); Serial.println("LED: GREEN"); break;
+      case 2: digitalWrite(RGB_LED_B, LOW); Serial.println("LED: BLUE"); break;
+    }
+    ledState = (ledState + 1) % 3;
+  }
+  
+  delay(100);
 }
 
 void setup() {
